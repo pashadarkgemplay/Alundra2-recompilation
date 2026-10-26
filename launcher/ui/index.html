@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alundra 2 PC</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <h1>Alundra 2</h1>
+      <p data-t="brand.sub"></p>
+    </div>
+    <ul class="nav" id="nav"></ul>
+    <div class="rail-foot">
+      <div class="langs" id="langs">
+        <button data-lang="en">EN</button>
+        <button data-lang="ru">RU</button>
+      </div>
+      <div class="ver" id="ver"></div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+
+    <div class="banner" id="banner" hidden>
+      <div class="bmsg">
+        <b id="bn-title"></b>
+        <span id="bn-text"></span>
+        <span class="bnotes" id="bn-notes"></span>
+      </div>
+      <div class="bbtns">
+        <button class="btn small" id="bn-main"></button>
+        <button class="btn small" id="bn-alt"></button>
+        <button class="btn small" id="bn-x"></button>
+      </div>
+    </div>
+
+    <section class="page" id="p-play">
+      <h2 id="play-title"></h2>
+      <p class="lead" id="play-lead"></p>
+
+      <div id="play-ready">
+        <div class="stat">
+          <button class="btn main-btn" id="b-play" data-t="play.go"></button>
+          <button class="btn" id="b-new" data-t="play.new"></button>
+        </div>
+        <p class="hint" data-t="play.newhint"></p>
+
+        <h3 class="sub" data-t="play.setup"></h3>
+        <div class="kv" id="setup"></div>
+      </div>
+
+      <div id="play-build" class="disc">
+        <label class="t discpart" for="disc" data-t="disc.label" style="font-weight:500"></label>
+        <div class="discrow discpart">
+          <input class="txt" id="disc" type="text" spellcheck="false" data-ph="disc.ph">
+          <button class="btn" id="b-browse" data-t="disc.browse"></button>
+        </div>
+        <p class="hint discpart" data-t="disc.hint"></p>
+        <p class="hint discpart" data-t="build.tools"></p>
+        <div class="btns" style="margin-top:18px">
+          <button class="btn main-btn" id="b-build" data-t="build.go"></button>
+          <button class="btn" id="b-stop" data-t="build.stop" hidden></button>
+          <button class="btn" id="b-back" data-t="build.back" hidden></button>
+        </div>
+        <ol class="steps" id="steps"></ol>
+        <div class="bar still" id="bar"></div>
+        <div class="status" id="status"></div>
+        <div class="clock" id="clock"></div>
+      </div>
+
+      <details class="out" id="out">
+        <summary data-t="out.title"></summary>
+        <div class="log" id="log"></div>
+      </details>
+    </section>
+
+    <section class="page" id="p-gfx">
+      <h2 data-t="gfx.title"></h2>
+      <p class="lead" data-t="gfx.lead"></p>
+      <div class="rows">
+        <div class="row" data-k="size" data-c="select"></div>
+        <div class="row" data-k="mode" data-c="seg"></div>
+        <div class="row" data-k="smooth" data-c="switch"></div>
+        <div class="row" data-k="texfilter" data-c="switch"></div>
+        <div class="row" data-k="hires" data-c="seg"></div>
+        <div class="row" data-k="showfps" data-c="switch"></div>
+      </div>
+    </section>
+
+    <section class="page" id="p-mods">
+      <h2 data-t="mods.title"></h2>
+      <p class="lead" data-t="mods.lead"></p>
+      <div class="rows">
+        <div class="row" data-k="wide" data-c="switch"></div>
+        <div class="row wide" id="wide-more">
+          <div>
+            <div class="t" data-t="wfmt.t"></div>
+            <div class="d" data-t="wfmt.d"></div>
+          </div>
+          <div class="ctl fmt">
+            <div class="seg" id="wfmt-seg"></div>
+            <input class="txt" id="wfmt-in" type="text" spellcheck="false" maxlength="12" data-ph="wfmt.ph">
+          </div>
+          <div class="note" id="wfmt-note"></div>
+        </div>
+        <div class="row" data-k="unlock" data-c="seg"></div>
+      </div>
+    </section>
+
+    <section class="page" id="p-keys">
+      <h2 data-t="keys.title"></h2>
+      <p class="lead" data-t="keys.lead"></p>
+      <div id="keys"></div>
+    </section>
+
+    <section class="page" id="p-sys">
+      <h2 data-t="sys.title"></h2>
+      <p class="lead" data-t="sys.lead"></p>
+      <div class="rows">
+        <div class="row" id="r-disc">
+          <div>
+            <div class="t" data-t="sys.disc.t"></div>
+            <div class="d" data-t="sys.disc.d"></div>
+          </div>
+          <div class="ctl">
+            <div class="val" id="disc-val"></div>
+            <div class="btns">
+              <button class="btn small" id="s-browse" data-t="disc.change"></button>
+              <button class="btn small" id="s-rebuild" data-t="sys.rebuild"></button>
+            </div>
+          </div>
+        </div>
+        <div class="row" id="r-gb">
+          <div>
+            <div class="t" data-t="gb.t"></div>
+            <div class="d" data-t="gb.d"></div>
+          </div>
+          <div class="ctl">
+            <div class="val" id="gb-val"></div>
+            <div class="btns"><button class="btn small" id="s-gb" data-t="gb.go"></button></div>
+          </div>
+        </div>
+        <div class="row" data-k="autoupdate" data-c="switch"></div>
+        <div class="row" id="r-upd">
+          <div>
+            <div class="t" data-t="upd.t"></div>
+            <div class="d" data-t="upd.d"></div>
+          </div>
+          <div class="ctl">
+            <div class="val" id="upd-val"></div>
+            <div class="btns">
+              <button class="btn small" id="s-check" data-t="upd.check"></button>
+              <button class="btn small" data-open="repo" data-t="upd.page"></button>
+            </div>
+          </div>
+        </div>
+        <div class="row" data-k="sound" data-c="switch"></div>
+        <div class="row" id="r-folders">
+          <div>
+            <div class="t" data-t="sys.dirs.t"></div>
+            <div class="d" data-t="sys.dirs.d"></div>
+          </div>
+          <div class="ctl">
+            <div class="btns">
+              <button class="btn small" data-open="saves" data-t="sys.saves"></button>
+              <button class="btn small" data-open="logs" data-t="sys.logs"></button>
+              <button class="btn small" data-open="game" data-t="sys.game"></button>
+            </div>
+          </div>
+        </div>
+        <div class="row" id="r-py">
+          <div>
+            <div class="t">Python</div>
+            <div class="d" data-t="sys.py.d"></div>
+          </div>
+          <div class="ctl"><div class="val" id="py-val"></div></div>
+        </div>
+      </div>
+      <details class="out" id="ulog-box">
+        <summary data-t="upd.log"></summary>
+        <div class="log" id="ulog"></div>
+      </details>
+      <p class="about" data-t="sys.about"></p>
+    </section>
+
+  </main>
+</div>
+<div id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>

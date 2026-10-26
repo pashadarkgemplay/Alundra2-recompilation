@@ -1,0 +1,9 @@
+{
+  "version": "0.9.0",
+  "notes": {
+    "en": "First public build: launcher, auto updates, widescreen and frame rate unlock.",
+    "ru": "Первая публичная сборка: лаунчер, автообновление, широкий экран и разблокировка частоты кадров."
+  },
+  "rebuild": null,
+  "rebuild_id": 0
+}
