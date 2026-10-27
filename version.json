@@ -1,9 +1,9 @@
 {
-  "version": "0.9.0",
+  "version": "0.9.2",
   "notes": {
-    "en": "First public build: launcher, auto updates, widescreen and frame rate unlock.",
-    "ru": "Первая публичная сборка: лаунчер, автообновление, широкий экран и разблокировка частоты кадров."
+    "en": "Fixed menus and the memory card screens running too fast (also with raised frame rate); more sound sync fixes.",
+    "ru": "Исправлено: меню и экраны карт памяти работали слишком быстро (в том числе при повышенной частоте кадров); ещё исправления синхронизации звука."
   },
-  "rebuild": null,
-  "rebuild_id": 0
+  "rebuild": "compile",
+  "rebuild_id": 2
 }

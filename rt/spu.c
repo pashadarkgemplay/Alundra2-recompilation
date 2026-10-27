@@ -54,9 +54,11 @@ static void adsr(V*v,const uint16_t*r){
 static inline int vol(uint16_t x){ if(x&0x8000) return (x&0x1000)?-0x3fff*2:0x3fff*2; return (int16_t)(x<<1); }
 
 #define CDRING 65536
-static int16_t cdl[CDRING], cdr_[CDRING]; static volatile unsigned cdw, cdrd; static double cdph; static int cdlastl, cdlastr, cd_rate; long spu_xa_frames, spu_xa_drops;
+static int16_t cdl[CDRING], cdr_[CDRING]; static volatile unsigned cdw, cdrd; static double cdph; static int cdlastl, cdlastr, cd_rate; long spu_xa_frames, spu_xa_drops, spu_xa_trims;
 void spu_xa_push(const int16_t*l,const int16_t*r,int n,int rate){
     if(n<=0) return; double step=(double)rate/44100.0; if(rate!=cd_rate){ cd_rate=rate; }
+
+    { unsigned wait=cdw-cdrd; if(wait>1470){ cdrd=cdw-735; spu_xa_trims++; } }
     int i=0; while(i<n){ int pl=i?l[i-1]:cdlastl, pr=i?r[i-1]:cdlastr; double f=cdph; int ol=(int)(pl+(l[i]-pl)*f), orr=(int)(pr+(r[i]-pr)*f);
         if(cdw-cdrd<CDRING-1){ cdl[cdw%CDRING]=(int16_t)ol; cdr_[cdw%CDRING]=(int16_t)orr; cdw++; spu_xa_frames++; } else spu_xa_drops++;
         cdph+=step; while(cdph>=1.0){ cdph-=1.0; i++; } }
@@ -121,4 +123,4 @@ int spu_pull(int16_t*o,int n){
   return got;
 }
 void spu_close(void){ if(dumpf){ fclose(dumpf); dumpf=0; } }
-void spu_stats(FILE*f){ int on=0; for(int i=0;i<24;i++) on+=vc[i].on; fprintf(f,"SPU: audio underruns %ld, dropped frames %ld; frames %ld, key-ons %ld, transferred %ld bytes, voices on %d, meansq %.0f, ctrl %04x mainvol %04x/%04x\n",spu_underrun,spu_drops,spu_frames,spu_kon_count,spu_dma_bytes,on,spu_frames?spu_energy/(spu_frames*735.0*2):0.0,reg[0x1aa/2],reg[0x180/2],reg[0x182/2]); fprintf(f,"SPU: CD audio volume %04x/%04x, XA samples queued %ld dropped %ld\n",reg[0x1b0/2],reg[0x1b2/2],spu_xa_frames,spu_xa_drops); }
+void spu_stats(FILE*f){ int on=0; for(int i=0;i<24;i++) on+=vc[i].on; fprintf(f,"SPU: audio underruns %ld, dropped frames %ld; frames %ld, key-ons %ld, transferred %ld bytes, voices on %d, meansq %.0f, ctrl %04x mainvol %04x/%04x\n",spu_underrun,spu_drops,spu_frames,spu_kon_count,spu_dma_bytes,on,spu_frames?spu_energy/(spu_frames*735.0*2):0.0,reg[0x1aa/2],reg[0x180/2],reg[0x182/2]); fprintf(f,"SPU: CD audio volume %04x/%04x, XA samples queued %ld dropped %ld, skipped ahead %ld\n",reg[0x1b0/2],reg[0x1b2/2],spu_xa_frames,spu_xa_drops,spu_xa_trims); }
