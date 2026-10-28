@@ -1,9 +1,9 @@
 {
-  "version": "0.9.2",
+  "version": "0.9.3",
   "notes": {
-    "en": "Fixed menus and the memory card screens running too fast (also with raised frame rate); more sound sync fixes.",
-    "ru": "Исправлено: меню и экраны карт памяти работали слишком быстро (в том числе при повышенной частоте кадров); ещё исправления синхронизации звука."
+    "en": "Fixed a crash in the bull chase mini game (\"call to function that is not in the main exe\").",
+    "ru": "Исправлен вылет в мини-игре с убеганием от быка («call to function that is not in the main exe»)."
   },
-  "rebuild": "compile",
-  "rebuild_id": 2
+  "rebuild": "translate",
+  "rebuild_id": 3
 }
