@@ -1,9 +1,9 @@
 {
-  "version": "0.9.3",
+  "version": "0.9.4",
   "notes": {
-    "en": "Fixed a crash in the bull chase mini game (\"call to function that is not in the main exe\").",
-    "ru": "Исправлен вылет в мини-игре с убеганием от быка («call to function that is not in the main exe»)."
+    "en": "Fixed a crash in the spider boss fight and the endless mine cart ride.",
+    "ru": "Исправлены вылет в бою с боссом-пауком и бесконечная поездка в мини-игре с вагонеткой."
   },
   "rebuild": "translate",
-  "rebuild_id": 3
+  "rebuild_id": 4
 }
