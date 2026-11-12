@@ -1,0 +1,9 @@
+{
+ "version": "0.9.15",
+ "notes": {
+  "en": "The game is fully playable.",
+  "ru": "Игра полностью проходима."
+},
+ "rebuild": "compile",
+ "rebuild_id": 15
+}

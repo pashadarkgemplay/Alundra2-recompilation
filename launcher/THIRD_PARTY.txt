@@ -1,0 +1,13 @@
+Parts of the launcher that are not ours:
+
+inc/WebView2.h, lib/WebView2Loader.dll
+  From the Microsoft.Web.WebView2 SDK, Copyright (C) Microsoft Corporation. Distributed under the SDK's license,
+  which allows redistributing the header and the loader dll with an application. The WebView2 runtime itself is not
+  included; the launcher downloads Microsoft's own installer if the runtime is missing.
+
+inc/EventToken.h
+  Tiny stand-in for the system header of the same name (the compilers we use do not ship it). Ours.
+
+ui/fonts/*.woff2
+  Spectral (Production Type) and IBM Plex Sans / Mono (IBM), subsetted to Latin and Cyrillic.
+  SIL Open Font License 1.1, see OFL-spectral.txt and OFL-plex.txt.
