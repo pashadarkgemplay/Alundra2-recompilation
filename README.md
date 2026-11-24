@@ -50,12 +50,7 @@ Requirements: Windows 10 or 11 (64-bit) and an internet connection on first laun
 ### Current State
 The game is fully playable from start to finish, with zero crashes.
 
-If you reach an uncompiled section, the launcher will display the crash address and let you copy the details. Post this info in Discord along with your save file and a short description of what caused the crash (e.g. after landing a hit). Fixes roll out via small updates that only recompile the changed files.
-
-### Roadmap
-* Performance improvements: reduce CPU overhead and offload more rendering tasks to the GPU.
-* Playability: trace and fix remaining code so the full game can be completed.
-* Polishing: expanded settings, refined gamepad input, better visuals, and mod support.
+If something does go wrong, the launcher shows the error details and lets you copy them. Post them in Discord along with your save file and a short description of what happened. Fixes roll out via small updates that only recompile the changed files.
 
 ### Updates
 The launcher checks for updates on launch (can be disabled in the "System" tab). When an update is found, click "Update" to download the patch and recompile only the modified files. This usually takes under a minute and does not require the disc image. Your saves, game assets, and settings remain untouched.
@@ -72,7 +67,7 @@ Crash logs are saved to `Desktop/alundra2logs` only when an error happens; pleas
 * Claude Sonnet 5.5
 * Claude Fable 5.1
 
-> Unofficial fan project. Not affiliated with the original developers or publishers of Alundra 2. A reverse engineering breakdown will be published later.
+> Unofficial fan project. Not affiliated with the original developers or publishers of Alundra 2.
 
 ---
 
@@ -122,12 +117,7 @@ Crash logs are saved to `Desktop/alundra2logs` only when an error happens; pleas
 ### Текущее состояние
 Игра полностью проходима от начала до конца, вылетов нет (0 вылетов).
 
-Если вы дойдете до участка, код которого еще не обработан, лаунчер выдаст окно с адресом и деталями сбоя. Скопируйте эти данные и отправьте в Discord вместе с файлом сохранения, а также опишите, что именно произошло в момент вылета (например, после удара по врагу). Такие правки выходят быстрыми патчами, при этом у вас пересобирается только обновленная часть кода.
-
-### Планы на разработку
-* Оптимизация: перенос части расчетов на видеокарту и снижение нагрузки на процессор.
-* Проходимость: исправление оставшихся функций для полного прохождения от начала до конца.
-* Доработки: расширенные настройки, улучшенный отклик геймпада, поддержка модов.
+Если что-то всё же пойдёт не так, лаунчер покажет детали ошибки и позволит их скопировать. Отправьте их в Discord вместе с файлом сохранения и коротко опишите, что произошло. Такие правки выходят быстрыми патчами, при этом у вас пересобирается только обновленная часть кода.
 
 ### Обновления
 Лаунчер проверяет наличие патчей при запуске (функцию можно отключить во вкладке «Система»). При наличии обновления нажмите «Обновить»: загрузятся новые файлы и пересоберется только измененная часть, обычно это занимает меньше минуты и не требует заново выбирать образ диска. Ваши сохранения, настройки и распакованные ресурсы игры не сбрасываются.
@@ -144,4 +134,4 @@ Crash logs are saved to `Desktop/alundra2logs` only when an error happens; pleas
 * Claude Sonnet 5.5
 * Claude Fable 5.1
 
-> Неофициальный фанатский проект. Не связан с авторами или издателями Alundra 2. Подробный разбор реверс-инжиниринга игры будет опубликован позже.
+> Неофициальный фанатский проект. Не связан с авторами или издателями Alundra 2.
