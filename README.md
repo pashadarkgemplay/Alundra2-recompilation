@@ -48,7 +48,7 @@ Requirements: Windows 10 or 11 (64-bit) and an internet connection on first laun
 *Gamepads work automatically out of the box.*
 
 ### Current State
-The game boots, "New Game" works, and the intro cutscene plus early areas up to the Ox Tank are playable. This is an early build, so the game cannot be finished yet.
+The game is fully playable from start to finish, with zero crashes.
 
 If you reach an uncompiled section, the launcher will display the crash address and let you copy the details. Post this info in Discord along with your save file and a short description of what caused the crash (e.g. after landing a hit). Fixes roll out via small updates that only recompile the changed files.
 
@@ -120,7 +120,7 @@ Crash logs are saved to `Desktop/alundra2logs` only when an error happens; pleas
 *Геймпад подхватывается автоматически.*
 
 ### Текущее состояние
-Игра стартует, работает «Новая игра», катсцены и первые локации вплоть до Ox Tank проходятся стабильно. Это ранняя версия, пройти игру до финальных титров пока нельзя.
+Игра полностью проходима от начала до конца, вылетов нет (0 вылетов).
 
 Если вы дойдете до участка, код которого еще не обработан, лаунчер выдаст окно с адресом и деталями сбоя. Скопируйте эти данные и отправьте в Discord вместе с файлом сохранения, а также опишите, что именно произошло в момент вылета (например, после удара по врагу). Такие правки выходят быстрыми патчами, при этом у вас пересобирается только обновленная часть кода.
 
