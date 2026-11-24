@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "gpu_gl.h"
+#include "a2hd.h"
 
 #ifdef _WIN32
 #define GLAPI __stdcall
@@ -62,6 +63,8 @@ typedef unsigned int GLenum, GLuint, GLbitfield; typedef int GLint, GLsizei; typ
 #define GL_PIXEL_PACK_BUFFER 0x88EB
 #define GL_STREAM_READ 0x88E1
 #define GL_MAP_READ_BIT 0x0001
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
+#define GL_TEXTURE1 0x84C1
 
 #define GLF(X) \
  X(void,GetIntegerv,(GLenum,GLint*)) X(const GLubyte*,GetString,(GLenum)) X(GLenum,GetError,(void)) \
@@ -77,17 +80,21 @@ typedef unsigned int GLenum, GLuint, GLbitfield; typedef int GLint, GLsizei; typ
  X(void,Uniform2f,(GLint,GLfloat,GLfloat)) X(void,Uniform4f,(GLint,GLfloat,GLfloat,GLfloat,GLfloat)) X(void,Uniform4i,(GLint,GLint,GLint,GLint,GLint)) X(void,GenVertexArrays,(GLsizei,GLuint*)) X(void,BindVertexArray,(GLuint)) \
  X(void,GenBuffers,(GLsizei,GLuint*)) X(void,BindBuffer,(GLenum,GLuint)) X(void,BufferData,(GLenum,GLsizeiptr,const void*,GLenum)) \
  X(void,VertexAttribPointer,(GLuint,GLint,GLenum,GLboolean,GLsizei,const void*)) X(void,VertexAttribIPointer,(GLuint,GLint,GLenum,GLsizei,const void*)) X(void,EnableVertexAttribArray,(GLuint)) \
- X(void*,MapBufferRange,(GLenum,GLintptr,GLsizeiptr,GLbitfield)) X(GLboolean,UnmapBuffer,(GLenum)) X(void,DeleteTextures,(GLsizei,const GLuint*)) X(void,DeleteFramebuffers,(GLsizei,const GLuint*)) X(void,DrawArrays,(GLenum,GLint,GLsizei)) X(void,Finish,(void)) X(void,Flush,(void)) X(void,ColorMask,(GLboolean,GLboolean,GLboolean,GLboolean))
+ X(void*,MapBufferRange,(GLenum,GLintptr,GLsizeiptr,GLbitfield)) X(GLboolean,UnmapBuffer,(GLenum)) X(void,DeleteTextures,(GLsizei,const GLuint*)) X(void,DeleteFramebuffers,(GLsizei,const GLuint*)) X(void,DrawArrays,(GLenum,GLint,GLsizei)) X(void,Finish,(void)) X(void,Flush,(void)) X(void,ColorMask,(GLboolean,GLboolean,GLboolean,GLboolean)) \
+ X(void,TexImage3D,(GLenum,GLint,GLint,GLsizei,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*)) X(void,TexSubImage3D,(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*)) \
+ X(void,FramebufferTextureLayer,(GLenum,GLenum,GLuint,GLint,GLint)) X(void,CopyTexSubImage3D,(GLenum,GLint,GLint,GLint,GLint,GLint,GLint,GLsizei,GLsizei))
 #define DECL(r,n,a) static r (GLAPI *gl##n)a;
 GLF(DECL)
 
 int a2_gl;                 /* 1 = the video card draws */
 static int S=1, truecolor=1, glerr_shown;
 static GLuint vtex, rtex, stex, dtex, otex, atex, vfbo, rfbo, sfbo, afbo, prog, dprog, vao, dvao, vbo, ptex, pfbo, pbo; static int pw_, ph_;
+static GLuint htex, hfbo; static int hk=1, hs_, hcap, hused, hlay[64]; static GLint u_hd, u_hk;
+static int hd_off, hd_dbg; static GLint u_hddbg;
 static GLint u_scale, u_pass, u_tw, u_quant, u_vram, d_tex, d_src, d_size, d_mode, d_flip;
 static int cur_fbo=-1, cur_tex=-1, sc_on=-1, sc_box[4]={-1,-1,-1,-1}, bl_eq=-1;
 
-typedef struct { float x,y,u,v; uint8_t r,g,b,a; uint16_t tp, clut; uint8_t box[4]; } GV;   /* 28 bytes */
+typedef struct { float x,y,u,v; uint8_t r,g,b,a; uint16_t tp, clut; uint8_t box[4]; uint16_t hd, pad; } GV;
 static GV *vb; static int nv, vcap;
 static int b_kind=-1, b_sc[4], b_tw=-1;          /* state of the batch being collected */
 static uint8_t dirty[32][64]; static int ndirty;  /* 16x16 blocks of video memory drawn since the read copy was refreshed */
@@ -96,16 +103,16 @@ static int tgt;                                   /* 0 = video memory, 1 = the i
 
 static const char *VS =
 "#version 330 core\n"
-"layout(location=0) in vec2 a_pos; layout(location=1) in vec2 a_uv; layout(location=2) in vec4 a_col; layout(location=3) in uvec2 a_tp; layout(location=4) in uvec4 a_box;\n"
-"out vec4 v_col; noperspective out vec2 v_uv; flat out uvec2 v_tp; flat out uvec4 v_box;\n"
-"void main(){ gl_Position=vec4(a_pos.x/512.0-1.0, a_pos.y/256.0-1.0, 0.0, 1.0); v_col=a_col; v_uv=a_uv; v_tp=a_tp; v_box=a_box; }\n";
+"layout(location=0) in vec2 a_pos; layout(location=1) in vec2 a_uv; layout(location=2) in vec4 a_col; layout(location=3) in uvec2 a_tp; layout(location=4) in uvec4 a_box; layout(location=5) in uint a_hd;\n"
+"out vec4 v_col; noperspective out vec2 v_uv; flat out uvec2 v_tp; flat out uvec4 v_box; flat out uint v_hd;\n"
+"void main(){ gl_Position=vec4(a_pos.x/512.0-1.0, a_pos.y/256.0-1.0, 0.0, 1.0); v_col=a_col; v_uv=a_uv; v_tp=a_tp; v_box=a_box; v_hd=a_hd; }\n";
 
 static const char *FS =
 "#version 330 core\n"
-"in vec4 v_col; noperspective in vec2 v_uv; flat in uvec2 v_tp; flat in uvec4 v_box;\n"
-"uniform sampler2D u_vram; uniform int u_scale; uniform int u_pass; uniform ivec4 u_tw; uniform int u_quant;\n"
+"in vec4 v_col; noperspective in vec2 v_uv; flat in uvec2 v_tp; flat in uvec4 v_box; flat in uint v_hd;\n"
+"uniform sampler2D u_vram; uniform int u_scale; uniform int u_pass; uniform ivec4 u_tw; uniform int u_quant; uniform sampler2DArray u_hd; uniform int u_hk; uniform int u_hddbg;\n"
 "layout(location=0, index=0) out vec4 o_col; layout(location=0, index=1) out vec4 o_bl;\n"
-"int tpx, tpy, tmode, clx, cly;\n"
+"int tpx, tpy, tmode, clx, cly; ivec2 hlo, hhi;\n"
 "uint word16(vec4 t){ uvec4 c=uvec4(t*255.0+0.5); return (c.r>>3)|((c.g>>3)<<5)|((c.b>>3)<<10)|(c.a>127u?0x8000u:0u); }\n"
 "vec4 texel(int u, int v, ivec2 sub){\n"
 "  u&=255; v&=255; u=(u & ~(u_tw.x*8)) | ((u_tw.z & u_tw.x)*8); v=(v & ~(u_tw.y*8)) | ((u_tw.w & u_tw.y)*8);\n"
@@ -116,21 +123,39 @@ static const char *FS =
 "  return texelFetch(u_vram, ivec2(((clx+int(idx))&1023)*u_scale, cly*u_scale), 0);\n"
 "}\n"
 "bool zero(vec4 t){ return t.r<7.5/255.0 && t.g<7.5/255.0 && t.b<7.5/255.0 && t.a<0.5; }\n"
+"vec4 pal(uint i){ return texelFetch(u_vram, ivec2(((clx+int(i))&1023)*u_scale, cly*u_scale), 0); }\n"
+"bool hdtap(ivec2 p, int L, out vec4 o, out float st){ if(u_tw.x!=0||u_tw.y!=0){ ivec2 q=ivec2(floor(vec2(p)/float(u_hk))), f=p-q*u_hk; q&=255; q.x=(q.x&~(u_tw.x*8))|((u_tw.z&u_tw.x)*8); q.y=(q.y&~(u_tw.y*8))|((u_tw.w&u_tw.y)*8); p=q*u_hk+f; } else p=clamp(p,hlo,hhi); vec4 t=texelFetch(u_hd, ivec3(p,L), 0); o=vec4(0.0); st=0.0; if(t.a<0.5) return false;\n"
+"  vec4 c0=pal(uint(t.r*255.0+0.5)); st=c0.a; if(t.b<0.5/255.0){ o=zero(c0)?vec4(0.0):vec4(c0.rgb,1.0); return true; }\n"
+"  vec4 c1=pal(uint(t.g*255.0+0.5)); float w=t.b*(255.0/30.0); float a0=zero(c0)?0.0:1.0-w, a1=zero(c1)?0.0:w;\n"
+"  o=vec4(c0.rgb*a0+c1.rgb*a1, a0+a1); return true; }\n"
+"bool hdsample(vec2 h, vec2 fw, int L, out vec4 o, out float st){\n"
+"  o=vec4(0.0); st=0.0;\n"
+"  if(max(fw.x,fw.y)>1.5){ vec2 d=0.25*fw; vec4 s=vec4(0.0), q; float t, n=0.0; bool any=false;\n"
+"    for(int k=0;k<4;k++){ vec2 off=vec2((k&1)==0?-d.x:d.x, (k&2)==0?-d.y:d.y); if(hdtap(ivec2(floor(h+off)),L,q,t)){ s+=q; n+=1.0; if(!any){ st=t; any=true; } } }\n"
+"    o=s/max(n,1.0); return any; }\n"
+"  vec2 f=h-0.5; ivec2 i=ivec2(floor(f)); vec2 a=f-vec2(i); vec4 t00,t10,t01,t11; float s00,s10,s01,s11;\n"
+"  bool b00=hdtap(i,L,t00,s00), b10=hdtap(i+ivec2(1,0),L,t10,s10), b01=hdtap(i+ivec2(0,1),L,t01,s01), b11=hdtap(i+ivec2(1,1),L,t11,s11);\n"
+"  bool bn; vec4 c; if(a.y<0.5){ if(a.x<0.5){ bn=b00; c=t00; st=s00; } else { bn=b10; c=t10; st=s10; } } else { if(a.x<0.5){ bn=b01; c=t01; st=s01; } else { bn=b11; c=t11; st=s11; } }\n"
+"  if(!bn) return false; if(!b00) t00=c; if(!b10) t10=c; if(!b01) t01=c; if(!b11) t11=c;\n"
+"  o=mix(mix(t00,t10,a.x),mix(t01,t11,a.x),a.y); return true; }\n"
 "void main(){\n"
 "  uint tp=v_tp.x; tpx=int(tp&15u)*64; tpy=int((tp>>4)&1u)*256; tmode=int((tp>>5)&3u); clx=int(v_tp.y&63u)*16; cly=int((v_tp.y>>6)&511u);\n"
+"  if((tp&0x4000u)!=0u && u_tw.x==0 && u_tw.y==0){ ivec2 bl=ivec2(v_box.xy), bh=ivec2(v_box.zw); if((tp&0x8000u)!=0u) bh=max(bh-1,bl); hlo=bl*u_hk+u_hk/2; hhi=(bh+1)*u_hk-u_hk/2-1; } else { hlo=ivec2(0); hhi=ivec2(256*u_hk-1); }\n"
 "  bool textured=(tp&0x200u)!=0u, raw=(tp&0x400u)!=0u, tr=(tp&0x800u)!=0u, filt=(tp&0x2000u)!=0u;\n"
-"  vec3 c=v_col.rgb; bool semi=tr;\n"
+"  vec3 c=v_col.rgb; bool semi=tr; vec2 huv=v_uv*float(u_hk); vec2 hfw=fwidth(huv);\n"
 "  if(textured){\n"
-"    vec2 uv=v_uv+vec2(1.0/1024.0); vec4 t;\n"
-"    if(filt){ vec2 f=uv-0.5; ivec2 i0=ivec2(floor(f)); vec2 a=f-vec2(i0); ivec2 i1=i0+1;\n"
+"    vec2 uv=v_uv+vec2(1.0/1024.0); vec4 t; vec4 ho; float hst; bool hd=v_hd!=0u && hdsample(huv,hfw,int(v_hd)-1,ho,hst);\n"
+"    if(hd){ if(ho.a<0.5) discard; t=vec4(ho.rgb/ho.a, hst); }\n"
+"    else if(filt){ vec2 f=uv-0.5; ivec2 i0=ivec2(floor(f)); vec2 a=f-vec2(i0); ivec2 i1=i0+1;\n"
 "      ivec2 lo=ivec2(v_box.xy), hi=ivec2(v_box.zw); ivec2 j0=clamp(i0,lo,hi), j1=clamp(i1,lo,hi);\n"
 "      vec4 t00=texel(j0.x,j0.y,ivec2(0)), t10=texel(j1.x,j0.y,ivec2(0)), t01=texel(j0.x,j1.y,ivec2(0)), t11=texel(j1.x,j1.y,ivec2(0));\n"
 "      if(zero(t00)||zero(t10)||zero(t01)||zero(t11)) t=texel(int(floor(uv.x)),int(floor(uv.y)),ivec2(0));\n"
 "      else { t=mix(mix(t00,t10,a.x),mix(t01,t11,a.x),a.y); t.a=t00.a; } }\n"
 "    else { ivec2 sub = tmode==2 ? ivec2(clamp(fract(uv)*float(u_scale),vec2(0.0),vec2(float(u_scale)-0.5))) : ivec2(0); t=texel(int(floor(uv.x)),int(floor(uv.y)),sub); }\n"
-"    if(zero(t)) discard;\n"
+"    if(!hd && zero(t)) discard;\n"
 "    vec3 tc=t.rgb; if(!raw) tc=min(tc*(floor(c*255.0+0.5)/128.0),vec3(1.0));\n"
 "    c=tc; semi=tr && t.a>0.5;\n"
+"    if(u_hddbg!=0) c=mix(c, hd?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0), 0.35);\n"
 "  }\n"
 "  if(u_quant!=0) c=floor(c*255.0/8.0+0.001)*(8.0/255.0);\n"
 "  if(u_pass==1 && semi) discard; if(u_pass==2 && !semi) discard;\n"
@@ -166,6 +191,34 @@ static void scissor(int on,int x,int y,int w,int h){ if(on!=sc_on){ if(on) glEna
 static void check_err(const char*where){ GLenum e=glGetError(); if(e&&glerr_shown<8){ glerr_shown++; fprintf(stderr,"[a2pc] video card: GL error 0x%x at %s\n",e,where); } }
 
 int gpu_gl_scale(void){ return S; }
+void gpu_gl_hd_key(int dbg){ if(dbg) hd_dbg^=1; else hd_off^=1; fprintf(stderr,"[a2pc] HD textures %s%s\n",hd_off?"off":"on",hd_dbg?", highlighted":""); }
+static int hd_busy;
+static void hd_setup(GLint mx){
+    hd_init(mx); if(!hd_on) return; hk=hd_scale(); hs_=256*hk; hcap=16; memset(hlay,0,sizeof hlay);
+    glGenTextures(1,&htex); glBindTexture(GL_TEXTURE_2D_ARRAY,htex); glTexImage3D(GL_TEXTURE_2D_ARRAY,0,GL_RGBA8,hs_,hs_,hcap,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+    glGenFramebuffers(1,&hfbo); cur_tex=-1; }
+static int hd_alloc(int key){
+    if(hlay[key]) return hlay[key]-1;
+    if(hused==hcap){ int nc=hcap*2; GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D_ARRAY,t); glTexImage3D(GL_TEXTURE_2D_ARRAY,0,GL_RGBA8,hs_,hs_,nc,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,hfbo); scissor(0,0,0,0,0);
+        for(int l=0;l<hcap;l++){ glFramebufferTextureLayer(GL_READ_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,htex,0,l); glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,0,0,l,0,0,hs_,hs_); }
+        glDeleteTextures(1,&htex); htex=t; hcap=nc; cur_fbo=-1; }
+    static uint8_t*z; if(!z) z=(uint8_t*)calloc((size_t)hs_*hs_,4);
+    glBindTexture(GL_TEXTURE_2D_ARRAY,htex); if(z) glTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,0,0,hused,hs_,hs_,1,GL_RGBA,GL_UNSIGNED_BYTE,z);
+    hlay[key]=++hused; return hused-1; }
+static void hd_exec(void){
+    HdOp*o; int n=hd_ops(&o); if(!n) return; hd_busy=1; gpu_gl_flush(); hd_busy=0;
+    static uint8_t*z; if(!z) z=(uint8_t*)calloc((size_t)hs_*hs_,4);
+    glActiveTexture(GL_TEXTURE1); glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+    for(int i=0;i<n;i++){ HdOp*q=&o[i]; if(q->key<0||q->key>=64) continue;
+        if(q->type==HD_CLEAR&&!hlay[q->key]) continue; int L=hd_alloc(q->key); glBindTexture(GL_TEXTURE_2D_ARRAY,htex);
+        if(q->type==HD_PUT){ glPixelStorei(GL_UNPACK_ROW_LENGTH,q->stride); glTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,q->u0*hk,q->v0*hk,L,q->w*hk,q->h*hk,1,GL_RGBA,GL_UNSIGNED_BYTE,q->src); glPixelStorei(GL_UNPACK_ROW_LENGTH,0); }
+        else if(z) glTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,q->u0*hk,q->v0*hk,L,q->w*hk,q->h*hk,1,GL_RGBA,GL_UNSIGNED_BYTE,z); }
+    glActiveTexture(GL_TEXTURE0); cur_tex=-1; check_err("hd"); }
+static uint16_t hd_layer(const GLSt*s,int mode){
+    if(!htex||mode>1||hd_off) return 0; int k=((s->tpy*16+s->tpx)<<1)|mode; return (uint16_t)hlay[k]; }
 int gpu_gl_init(void*(*getproc)(const char*),int scale){
 #define LOAD(r,n,a) *(void**)&gl##n=getproc("gl" #n); if(!gl##n){ fprintf(stderr,"[a2pc] video card: OpenGL function gl%s is missing\n",#n); return 0; }
     GLF(LOAD)
@@ -175,6 +228,7 @@ int gpu_gl_init(void*(*getproc)(const char*),int scale){
     { const char*e=getenv("A2GLTRUECOLOR"); truecolor=e?atoi(e):1; }
     prog=program(VS,FS); dprog=program(DVS,DFS); if(!prog||!dprog) return 0;
     glUseProgram(prog); u_scale=glGetUniformLocation(prog,"u_scale"); u_pass=glGetUniformLocation(prog,"u_pass"); u_tw=glGetUniformLocation(prog,"u_tw"); u_quant=glGetUniformLocation(prog,"u_quant"); u_vram=glGetUniformLocation(prog,"u_vram");
+    u_hd=glGetUniformLocation(prog,"u_hd"); u_hk=glGetUniformLocation(prog,"u_hk"); u_hddbg=glGetUniformLocation(prog,"u_hddbg"); hd_dbg=getenv("A2HDDEBUG")?atoi(getenv("A2HDDEBUG")):0; glUniform1i(u_hddbg,hd_dbg); glUniform1i(u_hd,1); glUniform1i(u_hk,1);
     glUniform1i(u_vram,0); glUniform1i(u_scale,S); glUniform1i(u_quant,!truecolor); glUniform4i(u_tw,0,0,0,0);
     glUseProgram(dprog); d_tex=glGetUniformLocation(dprog,"u_tex"); d_src=glGetUniformLocation(dprog,"u_src"); d_size=glGetUniformLocation(dprog,"u_size"); d_mode=glGetUniformLocation(dprog,"u_mode"); d_flip=glGetUniformLocation(dprog,"u_flip"); glUniform1i(d_tex,0);
     vtex=mktex(1024*S,512*S,GL_LINEAR); rtex=mktex(1024*S,512*S,GL_NEAREST); stex=mktex(1024,512,GL_NEAREST); dtex=mktex(640,480,GL_LINEAR); otex=mktex(64,32,GL_NEAREST);
@@ -183,6 +237,7 @@ int gpu_gl_init(void*(*getproc)(const char*),int scale){
     glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glPixelStorei(GL_UNPACK_ALIGNMENT,1); glPixelStorei(GL_PACK_ALIGNMENT,1);
     vcap=65536; vb=(GV*)malloc(sizeof(GV)*vcap); if(!vb) return 0;
     check_err("init"); if(glerr_shown) return 0;
+    hd_setup(mx);
     a2_gl=1; fprintf(stderr,"[a2pc] video card draws the game: internal resolution %dx (%dx%d), %s colour\n",S,1024*S,512*S,truecolor?"full":"15-bit");
     return 1; }
 
@@ -192,12 +247,14 @@ static void attribs(void){
     glVertexAttribPointer(1,2,GL_FLOAT,0,sizeof(GV),(void*)offsetof(GV,u)); glEnableVertexAttribArray(1);
     glVertexAttribPointer(2,4,GL_UNSIGNED_BYTE,1,sizeof(GV),(void*)offsetof(GV,r)); glEnableVertexAttribArray(2);
     glVertexAttribIPointer(3,2,GL_UNSIGNED_SHORT,sizeof(GV),(void*)offsetof(GV,tp)); glEnableVertexAttribArray(3);
-    glVertexAttribIPointer(4,4,GL_UNSIGNED_BYTE,sizeof(GV),(void*)offsetof(GV,box)); glEnableVertexAttribArray(4); }
+    glVertexAttribIPointer(4,4,GL_UNSIGNED_BYTE,sizeof(GV),(void*)offsetof(GV,box)); glEnableVertexAttribArray(4);
+    glVertexAttribIPointer(5,1,GL_UNSIGNED_SHORT,sizeof(GV),(void*)offsetof(GV,hd)); glEnableVertexAttribArray(5); }
 
 /* draw what has been collected */
 void gpu_gl_flush(void){
-    if(!a2_gl||!nv) return; gl_flushes++;
+    if(!a2_gl) return; if(hd_on&&!hd_busy) hd_exec(); if(!nv) return; gl_flushes++;
     bind_fbo(tgt?afbo:vfbo); glViewport(0,0,1024*S,512*S); glUseProgram(prog); glBindVertexArray(vao);
+    if(htex){ glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D_ARRAY,htex); glUniform1i(u_hk,hk); glUniform1i(u_hddbg,hd_dbg); }
     glActiveTexture(GL_TEXTURE0); if(cur_tex!=(int)rtex){ glBindTexture(GL_TEXTURE_2D,rtex); cur_tex=(int)rtex; }
     scissor(1,b_sc[0]*S,b_sc[1]*S,(b_sc[2]-b_sc[0]+1)*S,(b_sc[3]-b_sc[1]+1)*S);
     glUniform4i(u_tw,b_tw&31,(b_tw>>5)&31,(b_tw>>10)&31,(b_tw>>15)&31);
@@ -215,8 +272,10 @@ static void sync_read(void){
     memset(dirty,0,sizeof dirty); ndirty=0; if(x1<0) return; gl_syncs++;
     scissor(0,0,0,0,0); glBindFramebuffer(GL_READ_FRAMEBUFFER,vfbo); glBindFramebuffer(GL_DRAW_FRAMEBUFFER,rfbo);
     int X0=x0*16*S, Y0=y0*16*S, X1=(x1+1)*16*S, Y1=(y1+1)*16*S; glBlitFramebuffer(X0,Y0,X1,Y1,X0,Y0,X1,Y1,GL_COLOR_BUFFER_BIT,GL_NEAREST); cur_fbo=-1; }
+static int hd_hit, hd_nomark;
 static void mark(int x0,int y0,int x1,int y1){ if(tgt) return; if(x0<0)x0=0; if(y0<0)y0=0; if(x1>1023)x1=1023; if(y1>511)y1=511; if(x0>x1||y0>y1) return;
-    for(int y=y0>>4;y<=y1>>4;y++) for(int x=x0>>4;x<=x1>>4;x++) if(!dirty[y][x]){ dirty[y][x]=1; ndirty++; } }
+    for(int y=y0>>4;y<=y1>>4;y++) for(int x=x0>>4;x<=x1>>4;x++){ if(!dirty[y][x]){ dirty[y][x]=1; ndirty++; } if(hd_blk[y][x]) hd_hit=1; }
+    if(hd_hit){ hd_hit=0; if(!hd_nomark) hd_overwrite(x0,y0,x1,y1); } }
 static int hit(int x0,int y0,int w,int h){ if(!ndirty) return 0; for(int j=0;j<h;j+=16-((y0+j)&15)){ int y=((y0+j)&511)>>4; for(int i=0;i<w;i+=16-((x0+i)&15)){ if(dirty[y][((x0+i)&1023)>>4]) return 1; } }
     { int y=((y0+h-1)&511)>>4; if(dirty[y][((x0+w-1)&1023)>>4]) return 1; } return 0; }
 /* the texture page and palette this primitive reads */
@@ -231,14 +290,19 @@ static void batch_state(const GLSt*s,int kind){
     if(kind!=b_kind||s->dx0!=b_sc[0]||s->dy0!=b_sc[1]||s->dx1!=b_sc[2]||s->dy1!=b_sc[3]||tw!=b_tw){ gpu_gl_flush(); b_kind=kind; b_sc[0]=s->dx0; b_sc[1]=s->dy0; b_sc[2]=s->dx1; b_sc[3]=s->dy1; b_tw=tw; }
     if(nv+6>vcap) gpu_gl_flush(); }
 static uint16_t tpbits(const GLSt*s,int mode,int textured,int raw,int tr,int filt){ return (uint16_t)(s->tpx|(s->tpy<<4)|(mode<<5)|(s->semi<<7)|(textured<<9)|(raw<<10)|(tr<<11)|(s->setmask<<12)|(filt<<13)); }
-static void put(float x,float y,float u,float v,int r,int g,int b,uint16_t tp,uint16_t clut,const uint8_t*box){ GV*q=&vb[nv++]; q->x=x; q->y=y; q->u=u; q->v=v; q->r=(uint8_t)r; q->g=(uint8_t)g; q->b=(uint8_t)b; q->a=255; q->tp=tp; q->clut=clut; memcpy(q->box,box,4); }
+static uint16_t cur_hd; extern uint16_t vram[];
+const char*hd_owner_name(int,int,int,int,int);
+static void probe(int x0,int y0,int x1,int y1,int tpx,int tpy,int mode,int u0,int v0,int u1,int v1,int kind){ static int on=-1,r[4]; if(on<0){ const char*e=getenv("A2HDPROBE"); on=e&&sscanf(e,"%d,%d,%d,%d",r,r+1,r+2,r+3)==4; } if(!on||x1<r[0]||x0>r[2]||y1<r[1]||y0>r[3]) return; extern long gpu_frame; { static long pf=-2; if(pf==-2){ const char*e=getenv("A2HDPROBEF"); pf=e?atol(e):-1; } if(pf>=0?(gpu_frame<pf||gpu_frame>pf+3):(gpu_frame%60)!=0) return; } fprintf(stderr,"probe %s scr %d,%d-%d,%d page %d,%d mode %d uv %d,%d-%d,%d owner %s hd %d\n",kind?"rect":"tri",x0,y0,x1,y1,tpx,tpy,mode,u0,v0,u1,v1,hd_owner_name(tpx,tpy,mode,u0,v0),cur_hd); }
+#define vram_cpu vram
+static void put(float x,float y,float u,float v,int r,int g,int b,uint16_t tp,uint16_t clut,const uint8_t*box){ GV*q=&vb[nv++]; q->hd=cur_hd; q->pad=0; q->x=x; q->y=y; q->u=u; q->v=v; q->r=(uint8_t)r; q->g=(uint8_t)g; q->b=(uint8_t)b; q->a=255; q->tp=tp; q->clut=clut; memcpy(q->box,box,4); }
 
 void gpu_gl_tri(const GLV*a,const GLV*b,const GLV*c,int textured,int gour,int raw,int tr,int clx,int cly,int mode,int sub,const GLSt*s){
     if(s->dx1<s->dx0||s->dy1<s->dy0) return; gl_prims++;
     int umin=a->u,umax=a->u,vmin=a->v,vmax=a->v; const GLV*q[2]={b,c}; for(int i=0;i<2;i++){ if(q[i]->u<umin)umin=q[i]->u; if(q[i]->u>umax)umax=q[i]->u; if(q[i]->v<vmin)vmin=q[i]->v; if(q[i]->v>vmax)vmax=q[i]->v; }
     if(textured) tex_hazard(s,mode,clx,cly,umin,vmin,umax,vmax);
     batch_state(s,(tr&&s->semi==2)?1:0);
-    uint16_t tp=tpbits(s,mode,textured,raw,tr,textured&&s->filt), cl=(uint16_t)((clx>>4)|(cly<<6)); uint8_t box[4]={(uint8_t)umin,(uint8_t)vmin,(uint8_t)umax,(uint8_t)vmax};
+    uint16_t tp=tpbits(s,mode,textured,raw,tr,textured&&s->filt)|0xC000, cl=(uint16_t)((clx>>4)|(cly<<6)); uint8_t box[4]={(uint8_t)umin,(uint8_t)vmin,(uint8_t)umax,(uint8_t)vmax};
+    cur_hd=textured?hd_layer(s,mode):0; if(textured){ int ax=a->x,bx=a->x,ay=a->y,by=a->y; const GLV*qq[2]={b,c}; for(int i=0;i<2;i++){ if(qq[i]->x<ax)ax=qq[i]->x; if(qq[i]->x>bx)bx=qq[i]->x; if(qq[i]->y<ay)ay=qq[i]->y; if(qq[i]->y>by)by=qq[i]->y; } probe(ax>>sub,ay>>sub,bx>>sub,by>>sub,s->tpx,s->tpy,mode,umin,vmin,umax,vmax,0); } if(textured&&hd_on) hd_use(s->tpx,s->tpy,mode,clx,cly,umin,vmin,umax,vmax,vram_cpu); if(textured&&hd_on) hd_why(s->tpx,s->tpy,mode,umin,vmin,umax,vmax);
     const GLV*v[3]={a,b,c};
     const float k=1.0f/(float)(1<<sub);
     for(int i=0;i<3;i++){ const GLV*p=gour?v[i]:a; put(v[i]->x*k+0.5f,v[i]->y*k+0.5f,(float)v[i]->u,(float)v[i]->v,p->r,p->g,p->b,tp,cl,box); }
@@ -250,7 +314,8 @@ void gpu_gl_rect(int x,int y,int w,int h,int r,int g,int b,int textured,int raw,
     if(s->dx1<s->dx0||s->dy1<s->dy0||w<=0||h<=0) return; gl_prims++;
     if(textured) tex_hazard(s,s->tmode,clx,cly,u0,v0,u0+w-1,v0+h-1);
     batch_state(s,(tr&&s->semi==2)?1:0);
-    uint16_t tp=tpbits(s,s->tmode,textured,raw,tr,0), cl=(uint16_t)((clx>>4)|(cly<<6)); uint8_t box[4]={0,0,255,255};
+    uint16_t tp=tpbits(s,s->tmode,textured,raw,tr,0)|0x4000, cl=(uint16_t)((clx>>4)|(cly<<6)); int bu1=u0+w-1, bv1=v0+h-1; uint8_t box[4]={(uint8_t)(u0&255),(uint8_t)(v0&255),(uint8_t)(bu1>255?255:bu1),(uint8_t)(bv1>255?255:bv1)};
+    cur_hd=textured?hd_layer(s,s->tmode):0; if(textured) probe(x,y,x+w-1,y+h-1,s->tpx,s->tpy,s->tmode,u0,v0,u0+w-1,v0+h-1,1); if(textured&&hd_on) hd_use(s->tpx,s->tpy,s->tmode,clx,cly,u0,v0,u0+w-1,v0+h-1,vram_cpu); if(textured&&hd_on) hd_why(s->tpx,s->tpy,s->tmode,u0,v0,u0+w-1,v0+h-1);
     float X0=(float)x, Y0=(float)y, X1=(float)(x+w), Y1=(float)(y+h), U0=(float)u0, V0=(float)v0, U1=(float)(u0+w), V1=(float)(v0+h);
     put(X0,Y0,U0,V0,r,g,b,tp,cl,box); put(X1,Y0,U1,V0,r,g,b,tp,cl,box); put(X0,Y1,U0,V1,r,g,b,tp,cl,box);
     put(X1,Y0,U1,V0,r,g,b,tp,cl,box); put(X1,Y1,U1,V1,r,g,b,tp,cl,box); put(X0,Y1,U0,V1,r,g,b,tp,cl,box);
@@ -260,7 +325,7 @@ void gpu_gl_rect(int x,int y,int w,int h,int r,int g,int b,int textured,int raw,
 void gpu_gl_line(const GLV*a,const GLV*b,int gour,int tr,const GLSt*s){
     if(s->dx1<s->dx0||s->dy1<s->dy0) return; gl_prims++;
     batch_state(s,(tr&&s->semi==2)?1:0);
-    uint16_t tp=tpbits(s,0,0,0,tr,0); uint8_t box[4]={0,0,0,0}; const GLV*cb=gour?b:a;
+    uint16_t tp=tpbits(s,0,0,0,tr,0); uint8_t box[4]={0,0,0,0}; const GLV*cb=gour?b:a; cur_hd=0;
     float ax=a->x+0.5f, ay=a->y+0.5f, bx=b->x+0.5f, by=b->y+0.5f; int dx=b->x-a->x, dy=b->y-a->y;
     float ox,oy; if(abs(dx)>=abs(dy)){ float sg=dx>=0?0.5f:-0.5f; ax-=sg; bx+=sg; ox=0; oy=0.5f; } else { float sg=dy>=0?0.5f:-0.5f; ay-=sg; by+=sg; ox=0.5f; oy=0; }
     put(ax-ox,ay-oy,0,0,a->r,a->g,a->b,tp,0,box); put(bx-ox,by-oy,0,0,cb->r,cb->g,cb->b,tp,0,box); put(ax+ox,ay+oy,0,0,a->r,a->g,a->b,tp,0,box);
@@ -270,27 +335,30 @@ void gpu_gl_line(const GLV*a,const GLV*b,int gour,int tr,const GLSt*s){
 
 /* GP0(02): fill a rectangle (not limited by the drawing area) */
 void gpu_gl_fill(int x,int y,int w,int h,int r,int g,int b){
-    gpu_gl_flush(); if(w<=0||h<=0) return; float R=(r>>3)*8/255.0f, G=(g>>3)*8/255.0f, B=(b>>3)*8/255.0f; glClearColor(R,G,B,0);
+    gpu_gl_flush(); if(w<=0||h<=0) return; if(!tgt) hd_overwrite(x,y,x+w-1,y+h-1); float R=(r>>3)*8/255.0f, G=(g>>3)*8/255.0f, B=(b>>3)*8/255.0f; glClearColor(R,G,B,0);
     for(int j=0;j<h;){ int yy=(y+j)&511, hh=h-j; if(yy+hh>512) hh=512-yy; for(int i=0;i<w;){ int xx=(x+i)&1023, ww=w-i; if(xx+ww>1024) ww=1024-xx;
             if(tgt){ bind_fbo(afbo); scissor(1,xx*S,yy*S,ww*S,hh*S); glClear(GL_COLOR_BUFFER_BIT); i+=ww; continue; }
             bind_fbo(vfbo); scissor(1,xx*S,yy*S,ww*S,hh*S); glClear(GL_COLOR_BUFFER_BIT); bind_fbo(rfbo); glClear(GL_COLOR_BUFFER_BIT); i+=ww; } j+=hh; } }
 
 /* GP0(A0): the processor sent pixels; they are already in the processor copy of video memory */
 void gpu_gl_upload(const uint16_t*vram,int x,int y,int w,int h){
+    { static FILE*lf; static int on=-1; if(on<0){ const char*e=getenv("A2UPLOG"); on=e!=0; if(on) lf=fopen(e,"w"); } if(lf){ extern long gpu_frame; uint64_t hh=0xcbf29ce484222325ull; for(int j=0;j<h;j++) for(int i=0;i<w;i++){ uint16_t p=vram[((y+j)&511)*1024+((x+i)&1023)]; hh=(hh^(p&255))*0x100000001b3ull; hh=(hh^(p>>8))*0x100000001b3ull; } fprintf(lf,"%ld %d %d %d %d %016llx\n",gpu_frame,x,y,w,h,(unsigned long long)hh); fflush(lf);
+        const char*dd=getenv("A2UPDIR"); if(dd){ char fn[600]; snprintf(fn,sizeof fn,"%s/%016llx_%dx%d.bin",dd,(unsigned long long)hh,w,h); FILE*t=fopen(fn,"rb"); if(t) fclose(t); else if((t=fopen(fn,"wb"))){ for(int j=0;j<h;j++) for(int i=0;i<w;i++){ uint16_t p=vram[((y+j)&511)*1024+((x+i)&1023)]; fwrite(&p,2,1,t); } fclose(t); } } } }
     gpu_gl_flush(); static uint32_t buf[1024*512]; scissor(0,0,0,0,0);
     for(int j=0;j<h;){ int yy=(y+j)&511, hh=h-j; if(yy+hh>512) hh=512-yy; for(int i=0;i<w;){ int xx=(x+i)&1023, ww=w-i; if(xx+ww>1024) ww=1024-xx;
             for(int q=0;q<hh;q++){ const uint16_t*sr=&vram[(yy+q)*1024+xx]; uint32_t*d=&buf[q*ww]; for(int k=0;k<ww;k++){ uint16_t p=sr[k]; d[k]=((p&31)<<3)|(((p>>5)&31)<<11)|(((p>>10)&31)<<19)|((p&0x8000)?0xff000000u:0); } }
             glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,stex); cur_tex=(int)stex; glTexSubImage2D(GL_TEXTURE_2D,0,xx,yy,ww,hh,GL_RGBA,GL_UNSIGNED_BYTE,buf);
             glBindFramebuffer(GL_READ_FRAMEBUFFER,sfbo); glBindFramebuffer(GL_DRAW_FRAMEBUFFER,vfbo); glBlitFramebuffer(xx,yy,xx+ww,yy+hh,xx*S,yy*S,(xx+ww)*S,(yy+hh)*S,GL_COLOR_BUFFER_BIT,GL_NEAREST);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER,rfbo); glBlitFramebuffer(xx,yy,xx+ww,yy+hh,xx*S,yy*S,(xx+ww)*S,(yy+hh)*S,GL_COLOR_BUFFER_BIT,GL_NEAREST); cur_fbo=-1;
-            i+=ww; } j+=hh; } check_err("upload"); }
+            i+=ww; } j+=hh; } check_err("upload");
+    if(hd_on){ hd_upload(vram,x,y,w,h); hd_exec(); } }
 
 /* GP0(80): copy a rectangle inside video memory */
 void gpu_gl_copy(int sx,int sy,int dx,int dy,int w,int h){
-    gpu_gl_flush(); if(hit(sx,sy,w,h)) sync_read(); scissor(0,0,0,0,0); glBindFramebuffer(GL_READ_FRAMEBUFFER,rfbo); glBindFramebuffer(GL_DRAW_FRAMEBUFFER,vfbo); cur_fbo=-1;
+    gpu_gl_flush(); hd_copy(sx,sy,dx,dy,w,h); hd_nomark=1; if(hit(sx,sy,w,h)) sync_read(); scissor(0,0,0,0,0); glBindFramebuffer(GL_READ_FRAMEBUFFER,rfbo); glBindFramebuffer(GL_DRAW_FRAMEBUFFER,vfbo); cur_fbo=-1;
     for(int j=0;j<h;){ int ys=(sy+j)&511, yd=(dy+j)&511, hh=h-j; if(ys+hh>512) hh=512-ys; if(yd+hh>512) hh=512-yd;
         for(int i=0;i<w;){ int xs=(sx+i)&1023, xd=(dx+i)&1023, ww=w-i; if(xs+ww>1024) ww=1024-xs; if(xd+ww>1024) ww=1024-xd;
-            glBlitFramebuffer(xs*S,ys*S,(xs+ww)*S,(ys+hh)*S,xd*S,yd*S,(xd+ww)*S,(yd+hh)*S,GL_COLOR_BUFFER_BIT,GL_NEAREST); mark(xd,yd,xd+ww-1,yd+hh-1); i+=ww; } j+=hh; } }
+            glBlitFramebuffer(xs*S,ys*S,(xs+ww)*S,(ys+hh)*S,xd*S,yd*S,(xd+ww)*S,(yd+hh)*S,GL_COLOR_BUFFER_BIT,GL_NEAREST); mark(xd,yd,xd+ww-1,yd+hh-1); i+=ww; } j+=hh; } hd_nomark=0; }
 
 /* video memory from the video card into the processor copy (GP0(C0) reads, dumps) */
 void gpu_gl_readback(uint16_t*vram,int x,int y,int w,int h){
@@ -318,7 +386,7 @@ static void dquad(GLuint t,float sx,float sy,float sw,float sh,int mode,int flip
     glViewport(vx,vy,vw,vh); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,t); cur_tex=(int)t;
     glUniform4f(d_src,sx,sy,sw,sh); glUniform4f(d_size,0,0,(float)vw,(float)vh); glUniform1i(d_mode,mode); glUniform1i(d_flip,flip); glDrawArrays(GL_TRIANGLES,0,6); }
 void gpu_gl_present(const GLDisp*d,int winw,int winh,int logw,int smooth,const uint32_t*cpu_pic){
-    if(!a2_gl||winw<1||winh<1) return; gpu_gl_flush(); scissor(0,0,0,0,0); glDisable(GL_BLEND);
+    if(!a2_gl||winw<1||winh<1) return; gpu_gl_flush(); if(hd_on){ hd_exec(); hd_frame(); } { extern void a2mod_tick(void); a2mod_tick(); } scissor(0,0,0,0,0); glDisable(GL_BLEND);
     GLuint dst=out_fbo; if(out_flip){ if(winw!=ww_||winh!=wh_){ if(wfbo) gpu_gl_delete(wtex,wfbo); wtex=mktex(winw,winh,GL_NEAREST); wfbo=mkfbo(wtex); ww_=winw; wh_=winh; } dst=wfbo; }
     bind_fbo(dst); glViewport(0,0,winw,winh); glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT);
     double sc=(double)winw/logw; if((double)winh/480<sc) sc=(double)winh/480; int vw=(int)(logw*sc+0.5), vh=(int)(480*sc+0.5), vx=(winw-vw)/2, vy=(winh-vh)/2;
@@ -333,4 +401,4 @@ void gpu_gl_present(const GLDisp*d,int winw,int winh,int logw,int smooth,const u
     check_err("present"); }
 int gpu_gl_shot(const char*path,int w,int h){ uint32_t*px=(uint32_t*)malloc((size_t)w*h*4); if(!px) return 0; bind_fbo(out_flip?wfbo:out_fbo); glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,px);
     FILE*f=fopen(path,"wb"); if(f){ fprintf(f,"P6\n%d %d\n255\n",w,h); for(int y=h-1;y>=0;y--) for(int x=0;x<w;x++){ uint32_t p=px[(size_t)y*w+x]; fputc(p&255,f); fputc((p>>8)&255,f); fputc((p>>16)&255,f); } fclose(f); } free(px); return 1; }
-void gpu_gl_stats(FILE*f){ if(a2_gl) fprintf(f,"video card: %ld primitives, %ld draw calls, %ld read-copy refreshes, %ld in-between pictures\n",gl_prims,gl_flushes,gl_syncs,gl_alt); }
+void gpu_gl_stats(FILE*f){ hd_stats(f); if(a2_gl) fprintf(f,"video card: %ld primitives, %ld draw calls, %ld read-copy refreshes, %ld in-between pictures\n",gl_prims,gl_flushes,gl_syncs,gl_alt); }

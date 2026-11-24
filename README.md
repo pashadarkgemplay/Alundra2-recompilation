@@ -15,6 +15,8 @@ Requires your own copy of the game. This repository contains **no game assets**:
 * Widescreen support from 4:3 up to 32:9.
 * Smooth motion up to 240 FPS (interpolated from internal 3D data without speeding up the game).
 * Enhanced visuals: 2x to 4x geometry detail, clean scaling without edge blur, and texture filtering.
+* Optional HD textures and HD interface (two switches in the launcher, off by default; the packs in `hd/` are encrypted and hold no readable game pictures).
+* Fun mod: play as Alexia, Baron Diaz or Mephisto instead of Flint (Mods tab).
 * Automatic keyboard and gamepad detection.
 * Bilingual launcher (English and Russian) with setting explanations.
 * Automatic updates and standard saves in a single memory card file (`saves/memcard1.mcr`).
@@ -85,6 +87,8 @@ Crash logs are saved to `Desktop/alundra2logs` only when an error happens; pleas
 * Поддержка широких экранов от 4:3 до 32:9.
 * Плавная картинка до 240 кадров в секунду (кадры строятся на основе 3D данных игры, скорость геймплея остается нормальной).
 * Улучшенная графика: детализация 3D увеличена в 2-4 раза, четкое масштабирование без мыла и фильтрация текстур.
+* Необязательные HD-текстуры и HD-интерфейс (две галочки в лаунчере, по умолчанию выключены; паки в `hd/` зашифрованы и не содержат читаемых картинок игры).
+* Весёлый мод: играть за Алексию, барона Диаса или Мефисто вместо Флинта (вкладка «Моды»).
 * Автоматическая поддержка клавиатуры и геймпада.
 * Лаунчер на русском и английском с подсказками к каждому пункту.
 * Автоматические обновления и сохранения в стандартном файле карты памяти `saves/memcard1.mcr`.

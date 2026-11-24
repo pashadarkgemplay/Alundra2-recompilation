@@ -68,6 +68,8 @@ int a2_win_init(void){
     int(*sethint)(const char*,const char*)=(void*)DLSYM(lib,"SDL_SetHint"); if(sethint) sethint("SDL_RENDER_SCALE_QUALITY",(getenv("A2LINEAR")&&atoi(getenv("A2LINEAR")))?"1":"0");
     fs_on=(e=getenv("A2FULLSCREEN"))&&atoi(e); *(void**)&setfs=DLSYM(lib,"SDL_SetWindowFullscreen");
     { const char*we=getenv("A2WIDE"); if(we&&*we){ int p,q; double ar=(sscanf(we,"%d:%d",&p,&q)==2&&q>0)?(double)p/q:atof(we); if(ar>1.34&&ar<8.0) logw=(int)(480*ar+0.5); } }
+    int wpx=0x2FFF0000, wpy=0x2FFF0000;
+    if(getenv("A2BGWIN")&&atoi(getenv("A2BGWIN"))){ if(sethint) sethint("SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN","1"); wpx=-ww-4000; wpy=0; }
     uint32_t wfl=0x24|(fs_on?0x1001:0)|((getenv("A2BORDERLESS")&&atoi(getenv("A2BORDERLESS")))?0x10:0);
     { extern int gpu_gl_wanted(void), gpu_gl_init(void*(*)(const char*),int); extern void gpu_cpu_fallback(void); extern int a2_dx_init(void*,void*(*)(const char*)); extern void a2_dx_shutdown(void);
       if(gpu_gl_wanted()){
@@ -79,16 +81,16 @@ int a2_win_init(void){
           glattr(17,3); glattr(18,3); glattr(21,1); glattr(5,1); glattr(6,0); glattr(7,0);
 #ifdef _WIN32
           /* OpenGL on a hidden window, the game window itself gets a DXGI swap chain */
-          win=CreateWindow_("Alundra 2 recomp",0x2FFF0000,0x2FFF0000,ww,wh,wfl); glwin=win?CreateWindow_("a2gl",0,0,64,64,0x2|0x8):0;
+          win=CreateWindow_("Alundra 2 recomp",wpx,wpy,ww,wh,wfl); glwin=win?CreateWindow_("a2gl",0,0,64,64,0x2|0x8):0;
           if(glwin){ void*hw=0; glctx=glcc(glwin); if(glctx&&glmc(glwin,glctx)==0&&gpu_gl_init(glgpa,hs)&&(hw=sdl_hwnd(win))&&a2_dx_init(hw,glgpa)){ gl_on=1; dx_on=1; }
             if(!gl_on){ a2_dx_shutdown(); if(glctx) gldel(glctx); glctx=0; dwin(glwin); glwin=0; } }
           if(!gl_on&&win){ dwin(win); win=0; }
 #endif
-          if(!gl_on){ win=CreateWindow_("Alundra 2 recomp",0x2FFF0000,0x2FFF0000,ww,wh,wfl|0x2);
+          if(!gl_on){ win=CreateWindow_("Alundra 2 recomp",wpx,wpy,ww,wh,wfl|0x2);
             if(win){ glctx=glcc(win); if(glctx&&glmc(win,glctx)==0){ if(glsi) glsi(0); if(gpu_gl_init(glgpa,hs)) gl_on=1; }
               if(!gl_on){ if(glctx) gldel(glctx); glctx=0; dwin(win); win=0; } } } }
         if(!gl_on){ fprintf(stderr,"[a2pc] the video card cannot draw here (needs OpenGL 3.3), the processor draws instead\n"); gpu_cpu_fallback(); } } }
-    if(!gl_on){ win=CreateWindow_("Alundra 2 recomp",0x2FFF0000,0x2FFF0000,ww,wh,wfl); if(!win) return 0; ren=CreateRenderer_(win,-1,0); if(!ren) return 0;
+    if(!gl_on){ win=CreateWindow_("Alundra 2 recomp",wpx,wpy,ww,wh,wfl); if(!win) return 0; ren=CreateRenderer_(win,-1,0); if(!ren) return 0;
     int(*logsz)(void*,int,int)=(void*)DLSYM(lib,"SDL_RenderSetLogicalSize"); if(logsz) logsz(ren,logw,480); }
     smooth_out=getenv("A2LINEAR")&&atoi(getenv("A2LINEAR"));
     int(*showc)(int)=(void*)DLSYM(lib,"SDL_ShowCursor"); if(showc) showc(fs_on?0:1);
@@ -136,7 +138,7 @@ uint16_t a2_win_frame(int dx,int dy){
     a2_pres++;
     if(ok){ if(fps_show){ ov_tick(); gpu_gl_overlay(ovbuf,44,19,6,6,88,38); }
       gpu_gl_frame(gw,gh,logw,smooth_out);
-      { static int shot=-1, nsh, cnt=1; if(shot<0){ const char*e=getenv("A2SHOT"); shot=e?atoi(e):0; const char*c=e?strchr(e,'x'):0; if(c) cnt=atoi(c+1); } ++nsh; if(shot&&nsh>=shot&&nsh<shot+cnt){ char fn[512]; const char*f=getenv("A2SHOTF")?getenv("A2SHOTF"):"/tmp/claude-0/shot.ppm"; if(cnt>1) snprintf(fn,sizeof fn,"%s.%d.ppm",f,nsh-shot); else snprintf(fn,sizeof fn,"%s",f); gpu_gl_shot(fn,gw,gh); } }
+      { static int shot=-1, nsh, cnt=1; if(shot<0){ const char*e=getenv("A2SHOT"); shot=e?atoi(e):0; const char*c=e?strchr(e,'x'):0; if(c) cnt=atoi(c+1); } { static long at=-1; extern long gpu_frame; if(at<0){ const char*e=getenv("A2SHOTAT"); at=e?atol(e):0; } if(gpu_frame<at) nsh=-1; } ++nsh; if(shot&&nsh>=shot&&nsh<shot+cnt){ char fn[512]; const char*f=getenv("A2SHOTF")?getenv("A2SHOTF"):"/tmp/claude-0/shot.ppm"; if(cnt>1) snprintf(fn,sizeof fn,"%s.%d.ppm",f,nsh-shot); else snprintf(fn,sizeof fn,"%s",f); gpu_gl_shot(fn,gw,gh); } }
         { static char*vl=(char*)-1; extern long gpu_frame; if(vl==(char*)-1){ const char*e=getenv("A2SHOTV"); vl=e?strdup(e):0; } while(vl&&*vl&&gpu_frame>=atol(vl)){ char fn[512]; long v=atol(vl); snprintf(fn,sizeof fn,"%s.%ld.ppm",getenv("A2SHOTF")?getenv("A2SHOTF"):"/tmp/claude-0/shot",v); gpu_gl_shot(fn,gw,gh); char*c=strchr(vl,','); vl=c?c+1:0; } } }
     double tb=nowsec(); ph[1]+=tb-ta;
     if(dx_on){ if(ok) a2_dx_end(); } else glswap(win);
@@ -166,6 +168,7 @@ uint16_t a2_win_frame(int dx,int dy){
       {14,14},{44,14},{13,15},{15,13},{12,12},{20,10},{8,11},{43,8},{225,9},{229,9},{40,3},{41,3},{42,0}};
   for(unsigned i=0;i<sizeof t/sizeof*t;i++) if(k[t[i].sc]) m|=1u<<t[i].b;
   if(k[67]) quit=1;
+  { extern int a2_gl; extern void gpu_gl_hd_key(int); static int p9; if(k[66]&&!p9&&a2_gl) gpu_gl_hd_key(k[225]||k[229]); p9=k[66]; }
   { static int p11,p12; if(k[68]&&!p11&&setfs){ fs_on^=1; setfs(win,fs_on?0x1001:0); } p11=k[68]; (void)p12; }
   { extern void gpu_plog_start(void); extern int a2_norej,a2_nofog; static int p8,p9,p7; if(k[65]&&!p8) gpu_plog_start(); p8=k[65]; if(k[66]&&!p9){ a2_norej^=1; fprintf(stderr,"[a2pc] F9: big-triangle rejection %s\n",a2_norej?"OFF":"ON"); } p9=k[66]; if(k[64]&&!p7){ a2_nofog^=1; fprintf(stderr,"[a2pc] F7: depth fog %s\n",a2_nofog?"OFF":"ON"); } p7=k[64]; { extern int a2_force_l2; static int p5; if(k[62]&&!p5){ a2_force_l2^=1; fprintf(stderr,"[a2pc] F5: force the 2nd map layer (far background) %s\n",a2_force_l2?"ON":"OFF"); } p5=k[62]; } { extern int a2_nocull; static int p6; if(k[63]&&!p6){ a2_nocull=(a2_nocull+1)&3; fprintf(stderr,"[a2pc] F6: culling test level %d (0=normal, 1=no off-screen polygon reject, 2=+no back-face reject, 3=+no object box cull)\n",a2_nocull); } p6=k[63]; } }
 

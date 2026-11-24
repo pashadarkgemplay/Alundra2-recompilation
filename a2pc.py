@@ -7,7 +7,7 @@
     python a2pc.py status                  does the built game match these scripts?
     python a2pc.py play [options]          start the game
         --newgame  --size 1920x1080  --fullscreen | --borderless  --smooth | --sharp  --texfilter | --no-texfilter
-        --hires 1..8  --wide 16:9  --fps 60..240  --mute  --cpu (the processor draws instead of the video card, for checking)
+        --hires 1..8  --hd | --hdtex | --hdui  --hero alexia|diaz|mephisto  --hdrecord (note the palettes in use, for hdtools/hdbuild.py)  --wide 16:9  --fps 60..240  --mute  --cpu (the processor draws instead of the video card, for checking)
     python a2update.py check | apply       look for a newer version on GitHub / install it
 
 Everything made from your disc (game/, extracted/, recomp/, saves/) stays on this computer.
@@ -19,7 +19,7 @@ GAME = os.path.join(HERE, 'game'); REC = os.path.join(HERE, 'recomp'); EXT = os.
 WIN = os.name == 'nt'; EXE = 'a2pc.exe' if WIN else 'a2pc'
 P1 = [1, 2, 11, 13, 17, 18, 21, 23, 24, 25, 26, 30, 31, 32, 33, 34, 35]
 MODS = ['main', 'game00', 'event00', 'game01', 'game02', 'game03', 'al22', 'al22b', 'al22c', 'al22d'] + ['p1_%d' % i for i in P1]
-RT = ['boot_test.c', 'a2cd.c', 'gpu.c', 'gpu_gl.c', 'sio.c', 'a2card.c', 'a2thr.c', 'a2log.c', 'a2_win.c', 'a2_dxgi.c', 'a2ov.c', 'gte.c', 'spu.c']
+RT = ['boot_test.c', 'a2cd.c', 'gpu.c', 'gpu_gl.c', 'a2hd.c', 'a2mod.c', 'sio.c', 'a2card.c', 'a2thr.c', 'a2log.c', 'a2_win.c', 'a2_dxgi.c', 'a2ov.c', 'gte.c', 'spu.c']
 SDL_URL = 'https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2-2.30.9-win32-x64.zip'
 # output goes to the console and, during a build, to build.log; the launcher shows the same lines
 _out = {'last': time.time(), 'file': None}
@@ -290,7 +290,7 @@ def get_sdl():
         say('could not download SDL2.dll (%s). Download SDL2-2.x-win32-x64.zip from https://github.com/libsdl-org/SDL/releases and put SDL2.dll into %s' % (e, REC))
 
 # --- settings and starting the game
-DEFAULTS = {'size': '1280x960', 'mode': 'window', 'smooth': True, 'texfilter': True, 'hires': 1, 'pgxp': True, 'showfps': False, 'wide': False, 'wfmt': '16:9', 'unlock': 0, 'sound': True, 'start': 'continue'}
+DEFAULTS = {'size': '1280x960', 'mode': 'window', 'smooth': True, 'texfilter': True, 'hires': 1, 'pgxp': True, 'hdtex': False, 'hdui': False, 'hdsize': 4, 'herosw': False, 'hero': 'alexia', 'showfps': False, 'wide': False, 'wfmt': '16:9', 'unlock': 0, 'sound': True, 'start': 'continue'}
 LCFG = os.path.join(HERE, 'launcher.json')
 def launcher_cfg():
     try:
@@ -314,6 +314,10 @@ def settings_env(st):
     if st.get('smooth'):
         e['A2LINEAR'] = '1'; e['A2SHARP'] = '3' if int(h) >= 1000 or mode == 'fullscreen' else '2'   # whole-number prescale, then smoothing
     if st.get('texfilter'): e['A2TEXFILTER'] = '1'
+    if st.get('herosw') and st.get('hero') in ('alexia', 'diaz', 'mephisto'): e['A2HERO'] = st['hero']; e['A2MODDIR'] = os.path.join(HERE, 'hd')
+    if st.get('hdtex'): e['A2HDTEX'] = '1'
+    if st.get('hdui'): e['A2HDUI'] = '1'
+    if st.get('hdtex') or st.get('hdui'): e['A2HDDIR'] = os.path.join(HERE, 'hd'); e['A2HDSCALE'] = str(int(st.get('hdsize') or 4))
     if st.get('cpu'): e['A2GL'] = '0'                       # only for checking: the processor draws instead of the video card
     if int(st.get('hires', 1)) > 1: e['A2HIRES'] = str(int(st['hires'])); e.pop('A2SHARP', None)
     if not st.get('pgxp', True): e['A2PGXP'] = '0'                # precise 3D corners above 1x (on by default)
@@ -454,6 +458,11 @@ def main():
             if x == '--borderless': st['mode'] = 'borderless'
             if x == '--texfilter': st['texfilter'] = True
             if x == '--no-texfilter': st['texfilter'] = False
+            if x == '--hd': st['hdtex'] = True; st['hdui'] = True
+            if x == '--hero' and i + 1 < len(a): st['hero'] = a[i + 1]; st['herosw'] = True
+            if x == '--hdtex': st['hdtex'] = True
+            if x == '--hdui': st['hdui'] = True
+            if x == '--hdrecord': os.environ['A2HDUSAGE'] = os.path.join(HERE, 'hdwork', 'usage.txt'); os.environ['A2HDDIR'] = os.path.join(HERE, 'hd'); os.makedirs(os.path.join(HERE, 'hdwork'), exist_ok=True)
             if x == '--sharp': st['smooth'] = False
             if x == '--hires' and i + 1 < len(a): st['hires'] = max(1, min(8, int(a[i + 1])))
             if x == '--cpu': st['cpu'] = True

@@ -9,6 +9,7 @@ typedef struct { int off, alt; double ox,oy,ow,oh; double sx,sy,sw,sh; } GLDisp;
 extern int a2_gl;
 int gpu_gl_init(void*(*getproc)(const char*),int scale);
 int gpu_gl_scale(void);
+void gpu_gl_hd_key(int dbg);
 void gpu_gl_flush(void);
 void gpu_gl_tri(const GLV*a,const GLV*b,const GLV*c,int textured,int gour,int raw,int tr,int clx,int cly,int mode,int sub,const GLSt*s);
 int gpu_gl_target(int t);

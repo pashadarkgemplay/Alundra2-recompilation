@@ -64,7 +64,7 @@ static double msin(double x){ const double PI=3.14159265358979323846; while(x>PI
 static void lz_build(void){ for(int ph=0;ph<256;ph++){ double f=ph/256.0, sum=0, w[8]; for(int k=-3;k<=4;k++){ double x=k-f, v; if(x==0) v=1; else { double px=3.14159265358979*x; v=(msin(px)/px)*(msin(px/4)/(px/4)); } w[k+3]=v; sum+=v; } for(int k=0;k<8;k++) lz_w[ph][k]=(float)(w[k]/sum); } lz_init=1; }
 void spu_xa_push(const int16_t*l,const int16_t*r,int n,int rate){
     if(n<=0) return; if(!lz_init) lz_build(); if(rate!=cd_rate) cd_rate=rate;
-    static float hl[8], hr[8]; static double pos=4.0; double step=(double)rate/44100.0;
+    static float hl[8], hr[8]; static double pos=4.0; extern double a2_vbl_ratio(void); double step=(double)rate*a2_vbl_ratio()/44100.0;   /* see a2cd.c: XA keeps the PS1 ratio to the frames */
     { unsigned wait=cdw-cdrd; if(wait>22050){ cdrd=cdw-11025; spu_xa_trims++; } }
     float *xl=(float*)malloc((size_t)(n+8)*sizeof(float)), *xr=(float*)malloc((size_t)(n+8)*sizeof(float)); if(!xl||!xr){ free(xl); free(xr); return; }
     for(int i=0;i<8;i++){ xl[i]=hl[i]; xr[i]=hr[i]; } for(int i=0;i<n;i++){ xl[8+i]=l[i]; xr[8+i]=r[i]; }

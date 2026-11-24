@@ -19,3 +19,9 @@ launcher.python
 a2pc_perf.log
 SDL2.dll
 __pycache__/
+hdwork/
+hdtools/*.pdb
+hdtools/*.lib
+hdtools/*.dll
+hdtools/*.so
+!hd/*.bin

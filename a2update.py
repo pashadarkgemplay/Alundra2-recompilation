@@ -21,7 +21,7 @@ MAX_BYTES, MAX_FILES = 600 << 20, 6000
 # what an update may write: top-level scripts and notes, rt/, launcher/, the bootstrap script
 ALLOW_TOP = ('.py', '.txt', '.md', '.bat', '.ps1')
 ALLOW_NAMES = {'version.json', '.gitignore', 'LICENSE', 'A2Launcher.exe'}
-ALLOW_DIRS = ('rt/', 'launcher/')
+ALLOW_DIRS = ('rt/', 'launcher/', 'hd/', 'hdtools/')
 ALLOW_FILES = {'tools/bootstrap.ps1'}
 # and what it never touches, even if the repository happens to contain it
 PROTECTED = ('game/', 'extracted/', 'recomp/', 'obj/', 'saves/', 'tools/python/', 'tools/zig/', 'tools/update/', '__pycache__/')

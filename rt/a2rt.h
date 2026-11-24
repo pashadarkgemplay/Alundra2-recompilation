@@ -10,13 +10,15 @@ extern uint32_t a2_cy, a2_cpuk;
 #endif
 #ifdef A2_STANDALONE
 #define a2_tick(c,at) ((void)0)
-#define A2B(pc,nw,cy) ((void)0)
+#define A2B(pc,nw,cy,ns,gl) ((void)0)
 #else
 void a2_tick(CPU*c,uint32_t at);
 /* start of a straight-line block: its CPU time (1/16 vtime units) plus instruction-cache fills */
 extern void a2_ic(uint32_t pc,uint32_t nw);
 extern uint32_t a2_cpuk;
-#define A2B(pc,nw,cy) (__builtin_expect(a2_cpuk!=0,0)?(a2_cy+=((cy)*a2_cpuk)>>8,a2_ic((pc),(nw))):(void)0)   /* CPU time model off (normal play) costs one test */
+extern uint32_t a2_stc, a2_gtf;   /* a2_stc: extra cost of a store, 1/16 vtime units; a2_gtf: weight of GTE latency cycles, 1/256 of a 1/16 unit (session 107) */
+extern uint64_t a2_k_base, a2_k_st, a2_k_gte, a2_k_ld, a2_k_rd;   /* component totals of the CPU model, for calibration logs (session 107) */
+#define A2B(pc,nw,cy,ns,gl) (__builtin_expect(a2_cpuk!=0,0)?(a2_k_base+=(cy),a2_k_st+=(ns),a2_k_gte+=(gl),a2_cy+=(((cy)+(ns)*a2_stc+(((gl)*a2_gtf)>>8))*a2_cpuk)>>8,a2_ic((pc),(nw))):(void)0)   /* CPU time model off (normal play) costs one test */
 #endif
 void ov_call(CPU*c,uint32_t addr);
 void (*a2_find(uint32_t addr))(CPU*);
@@ -27,9 +29,21 @@ extern uint8_t  rd8(uint32_t a);  extern uint16_t rd16(uint32_t a); extern uint3
 extern void wr8(uint32_t a,uint32_t v); extern void wr16(uint32_t a,uint32_t v); extern void wr32(uint32_t a,uint32_t v);
 #if !defined(A2_STANDALONE) && !defined(A2_RT_IMPL)
 /* a load from RAM stalls the R3000 (no data cache): ~3 extra cycles = 17/16 vtime unit */
-#define rd8(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(17*a2_cpuk)>>8):(void)0),(rd8)(a))
-#define rd16(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(17*a2_cpuk)>>8):(void)0),(rd16)(a))
-#define rd32(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(17*a2_cpuk)>>8):(void)0),(rd32)(a))
+extern uint32_t a2_rdc;   /* extra cost of a load from main RAM, 1/16 vtime units; scratchpad loads cost nothing extra (session 107) */
+static inline uint32_t a2_ldc(uint32_t a){ if((a&0x1ffffc00u)==0x1f800000u) return 0; a2_k_rd++; return a2_rdc; }
+#define rd8(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldc(a)*a2_cpuk)>>8):(void)0),(rd8)(a))
+#define rd16(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldc(a)*a2_cpuk)>>8):(void)0),(rd16)(a))
+#define rd32(a) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldc(a)*a2_cpuk)>>8):(void)0),(rd32)(a))
+extern uint32_t a2_ldw;   /* weight of the per-load cost computed by the translator (256 = as computed), session 107 */
+static inline uint32_t a2_ldx(uint32_t a,uint32_t e16){ if((a&0x1ffffc00u)==0x1f800000u) return 0; a2_k_ld+=e16; return (e16*a2_ldw)>>8; }
+#define rdx8(a,e) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldx((a),(e))*a2_cpuk)>>8):(void)0),(rd8)(a))
+#define rdx16(a,e) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldx((a),(e))*a2_cpuk)>>8):(void)0),(rd16)(a))
+#define rdx32(a,e) ((__builtin_expect(a2_cpuk!=0,0)?(void)(a2_cy+=(a2_ldx((a),(e))*a2_cpuk)>>8):(void)0),(rd32)(a))
+#endif
+#ifndef rdx8
+#define rdx8(a,e) rd8(a)
+#define rdx16(a,e) rd16(a)
+#define rdx32(a,e) rd32(a)
 #endif
 
 static inline uint32_t lwl(uint32_t old,uint32_t a){uint32_t w=rd32(a&~3u);switch(a&3){case 0:return (old&0x00FFFFFF)|(w<<24);case 1:return (old&0x0000FFFF)|(w<<16);case 2:return (old&0x000000FF)|(w<<8);default:return w;}}

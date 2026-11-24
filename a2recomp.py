@@ -7,11 +7,14 @@ import sys,os,struct
 sys.path.insert(0,'.')
 from dasm import load
 RN=['zero','at','v0','v1','a0','a1','a2','a3','t0','t1','t2','t3','t4','t5','t6','t7','s0','s1','s2','s3','s4','s5','s6','s7','t8','t9','k0','k1','gp','sp','fp','ra']
+# calls into the runtime at chosen block starts (a2mod.c): hero choice for the fun mods
+HOOKS={0x800af15c:'{extern void a2_hero_mode_hook(CPU*); a2_hero_mode_hook(c);}',
+       0x8009f408:'{extern void a2_hero_model_hook(CPU*); a2_hero_model_hook(c);}'}
 def patch_al22(txt):
     """Debug switch (key F6 / env A2NOCULL=1..3): level>=1 skips the per-polygon off-screen rejects, >=2 also the back-face rejects, >=3 the per-object bounding-box cull. Level 0 = original behaviour."""
     import re
     old=("{int c_=c->r[6]==0; if(c_){goto L_80010414;}}\n" if False else None)
-    pat=re.compile(r'((?:(?:L_[0-9a-f]{8}:;)?(?:A2B\(0x[0-9a-f]{8},\d+,\d+\);)?\{int c_=c->r\[(?:15|24|2|6|7|23)\]==0; if\(c_\)\{goto L_80010414;\}\}\n){6})')
+    pat=re.compile(r'((?:(?:L_[0-9a-f]{8}:;)?(?:A2B\(0x[0-9a-f]{8},\d+,\d+(?:,\d+,\d+)?\);)?\{int c_=c->r\[(?:15|24|2|6|7|23)\]==0; if\(c_\)\{goto L_80010414;\}\}\n){6})')
     m=pat.search(txt); assert m, 'al22 object cull block not found'
     txt=txt[:m.start()]+'if(a2_nocull<3){\n'+m.group(1)+'}\n'+txt[m.end():]
     a=txt.index('void f_al22_80010de4(CPU*c){'); a=txt.index('void f_al22_80010de4(CPU*c){',a) if False else a
@@ -79,6 +82,36 @@ def discover(B,d):
 def R(r): return '0' if r==0 else 'c->r[%d]'%r
 def W_(r,e): return '' if r==0 else 'c->r[%d]=%s;'%(r,e)
 def ea(w): rs=(w>>21)&31; off=sx(w); return '(%s+(%d))'%(R(rs),off) if rs else '(%d)'%(off&0xFFFFFFFF)
+CURW={'B':0,'W':[]}
+def regs_read(w):
+    """registers an instruction reads (for the load-delay absorb estimate)"""
+    op=w>>26; rs=(w>>21)&31; rt=(w>>16)&31
+    if w==0: return set()
+    if op==0: return {rs,rt}
+    if op in (1,6,7): return {rs}
+    if op in (4,5): return {rs,rt}
+    if op in (2,3): return set()
+    if op==0x0F: return set()
+    if op in (8,9,0x0A,0x0B,0x0C,0x0D,0x0E): return {rs}
+    if op in (0x28,0x29,0x2A,0x2B,0x2E): return {rs,rt}
+    if 0x20<=op<=0x26: return {rs} | ({rt} if op in (0x22,0x26) else set())
+    if op in (0x32,0x3A): return {rs}
+    if op==0x12: return {rt} if ((w>>21)&31) in (4,6) else set()
+    if op==0x10: return {rt}
+    return {rs,rt}
+def load_extra(A,rt):
+    """R3000 load from main RAM: about 5 cycles beyond the instruction itself, minus the independent instructions that
+    follow it (up to 5) - they run in the shadow of the load; a use of the register, another memory access or a jump ends it"""
+    B=CURW['B']; W=CURW['W']; k=0
+    for j in range(1,6):
+        i=(A+4*j-B)//4
+        if i<0 or i>=len(W): break
+        w=W[i]; op=w>>26
+        if rt and rt in regs_read(w): break
+        if 0x20<=op<=0x2E or op in (0x32,0x3A): break
+        k+=1
+        if op in (1,2,3,4,5,6,7) or (op==0 and (w&63) in (8,9)): break
+    return 5-k
 def simple(w,A,st):
     """translate one non-branch instruction to a C statement ('' for nop)"""
     op=w>>26; rs=(w>>21)&31; rt=(w>>16)&31; rd=(w>>11)&31; sh=(w>>6)&31; fn=w&63; imm=w&0xFFFF; s=sx(w)
@@ -103,8 +136,8 @@ def simple(w,A,st):
     if op==0x0D: return W_(rt,'%s|0x%x'%(R(rs),imm))
     if op==0x0E: return W_(rt,'%s^0x%x'%(R(rs),imm))
     if op==0x0F: return W_(rt,'0x%08xu'%(imm<<16))
-    L={0x20:'(uint32_t)(int32_t)(int8_t)rd8(%s)',0x21:'(uint32_t)(int32_t)(int16_t)rd16(%s)',0x23:'rd32(%s)',0x24:'rd8(%s)',0x25:'rd16(%s)'}
-    if op in L: return W_(rt,L[op]%ea(w))
+    L={0x20:'(uint32_t)(int32_t)(int8_t)rdx8(%s,%d)',0x21:'(uint32_t)(int32_t)(int16_t)rdx16(%s,%d)',0x23:'rdx32(%s,%d)',0x24:'rdx8(%s,%d)',0x25:'rdx16(%s,%d)'}
+    if op in L: return W_(rt,L[op]%(ea(w),int(round(load_extra(A,rt)*CY16))))
     if op==0x22: return W_(rt,'lwl(%s,%s)'%(R(rt),ea(w)))
     if op==0x26: return W_(rt,'lwr(%s,%s)'%(R(rt),ea(w)))
     if op==0x28: return 'wr8(%s,%s);'%(ea(w),R(rt))
@@ -191,19 +224,57 @@ def call_stmt(t):
 
 GTE_LAT={0x01:15,0x06:8,0x0C:6,0x10:8,0x11:8,0x12:8,0x13:19,0x14:13,0x16:44,0x1B:17,0x1C:11,0x1E:14,0x20:30,0x28:5,0x29:8,0x2A:17,0x2D:5,0x2E:6,0x30:23,0x3D:5,0x3E:5,0x3F:39}
 CY16=5.674   # 1 CPU cycle = 1/2.82 vtime unit; costs are kept in 1/16 vtime units
-def icost(w):
-    """approximate R3000 cycles of one instruction (loads from RAM add their stall in the runtime, fetch misses in a2_ic)"""
+def icost3(w):
+    """(base cycles, stores, GTE latency) of one instruction; the runtime weighs stores and GTE latency (session 107)"""
     op=w>>26; fn=w&63
-    if w==0: return 1.0
+    if w==0: return (1.0,0,0)
     if op==0:
-        if fn in (0x18,0x19): return 8.0
-        if fn in (0x1A,0x1B): return 36.0
-        return 1.0
-    if op in (0x28,0x29,0x2A,0x2B,0x2E,0x3A): return 2.0      # stores: write buffer, small average stall
-    if op==0x12 and (w&0x2000000): return 1.0+0.7*GTE_LAT.get(fn,10)
-    return 1.0
+        if fn in (0x18,0x19): return (8.0,0,0)
+        if fn in (0x1A,0x1B): return (36.0,0,0)
+        return (1.0,0,0)
+    if op in (0x28,0x29,0x2A,0x2B,0x2E,0x3A): return (1.0,1,0)
+    if op==0x12 and (w&0x2000000): return (1.0,0,GTE_LAT.get(fn,10))
+    return (1.0,0,0)
+def icost(w):
+    b,s_,g=icost3(w); return b+s_+0.7*g
+def gte_exposed(A,lat):
+    """cycles the R3000 waits for a GTE command started at A: it runs on while the GTE works and stalls only at the next
+    COP2 access (command, MFC2/CFC2/MTC2/CTC2, LWC2/SWC2) that comes before the latency is over (session 107)"""
+    B=CURW['B']; W=CURW['W']; k=0
+    for j in range(1,lat+1):
+        i=(A+4*j-B)//4
+        if i<0 or i>=len(W): return 0
+        w=W[i]; op=w>>26
+        if op in (0x12,0x32,0x3A): return max(0,lat-k)
+        k+=1
+        if op in (2,3) or (op==0 and (w&63) in (8,9)): return 0
+    return 0
+def md_exposed(A,lat):
+    """MULT/DIV run beside the CPU (R3000): it waits only at MFLO/MFHI (or the next MULT/DIV) issued before the result is
+    ready - cycles of that wait (session 107; Mednafen: MULT 7/10/14 by operand size, DIV 37)"""
+    B=CURW['B']; W=CURW['W']; k=0
+    for j in range(1,lat+1):
+        i=(A+4*j-B)//4
+        if i<0 or i>=len(W): return 0
+        w=W[i]; op=w>>26
+        if op==0 and (w&63) in (0x10,0x12,0x18,0x19,0x1A,0x1B): return max(0,lat-k)
+        k+=1
+        if op in (2,3) or (op==0 and (w&63) in (8,9)): return 0
+    return 0
+MD_EXPOSED=False   # tried in session 107: no better against Mednafen, kept off
+def bcost(ws,A0=None):
+    b=s_=g=0
+    for j,w in enumerate(ws):
+        x=icost3(w)
+        if MD_EXPOSED and A0 is not None and (w>>26)==0 and (w&63) in (0x18,0x19,0x1A,0x1B):
+            x=(1.0+md_exposed(A0+4*j,10 if (w&63) in (0x18,0x19) else 37),0,0)
+        b+=x[0]; s_+=x[1]
+        if x[2]: g+= gte_exposed(A0+4*j,int(x[2])) if (A0 is not None and GTE_EXPOSED) else x[2]
+    return int(round(b*CY16)),s_,g
+GTE_EXPOSED=True
 def tr_function(B,W,start,limit):
     """translate [start, end) ; returns (C source, end address, stats)"""
+    CURW['B']=B; CURW['W']=W
     n=len(W); idx=lambda a:(a-B)//4
     if start+12<=limit:
         w0,w1,w2=W[idx(start)],W[idx(start+4)],W[idx(start+8)]
@@ -256,9 +327,11 @@ def tr_function(B,W,start,limit):
     pre_of={}
     for k,x in enumerate(bl):
         nx=bl[k+1] if k+1<len(bl) else end
-        pre_of[x]='A2B(0x%08x,%d,%d);'%(x,(nx-x)//4,int(round(sum(icost(W[idx(y)]) for y in range(x,nx,4))*CY16)))
+        pre_of[x]='A2B(0x%08x,%d,%d,%d,%d);'%((x,(nx-x)//4)+bcost([W[idx(y)] for y in range(x,nx,4)],x))
     for x in dslots:
-        if x in leaders and start<=x<end: pre_of[x]='A2B(0x%08x,1,%d);'%(x,int(round(icost(W[idx(x)])*CY16)))
+        if x in leaders and start<=x<end: pre_of[x]='A2B(0x%08x,1,%d,%d,%d);'%((x,)+bcost([W[idx(x)]],x))
+    for x,t in HOOKS.items():
+        if x in pre_of: pre_of[x]+=t
     out=['__attribute__((weak)) void %s(CPU*c){'%fname(start)]; st=dict(insn=0,unk=0); a=start
     if start==0x8003b148: out.append('{extern void a2_vsync_hook(unsigned); a2_vsync_hook(c->r[4]);}')
     def slot(sa):

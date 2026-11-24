@@ -19,14 +19,20 @@ static uint8_t mode, stat=0x02; static int reading, busy; static uint32_t loc;
 typedef struct{ uint64_t t; int irq; uint8_t r[16]; int n; int kind; }Ev;
 static Ev q[8]; static int nq;
 static uint64_t read_period=80000;
+/* The PS1 (NTSC) shows 59.826 frames a second, the runtime 60 (200000 vtime units a frame). The drive and the XA stream must keep
+   the PS1 ratio to the frames, otherwise the picture of a cut-scene runs ahead of the voice by 0.29% (0.3 s in 100 s; session 107,
+   measured against Mednafen). So a sector takes 59.826/60 of the nominal time, and spu.c plays XA 60/59.826 faster - pitch +5 cents.
+   A2VBLHZ=60 restores the old timing. */
+double a2_vbl_ratio(void){ static double k=0; if(k==0){ const char*e=getenv("A2VBLHZ"); double hz=e?atof(e):59.826; if(hz<50||hz>70) hz=59.826; k=60.0/hz; } return k; }
 /* Mechanical timing (approximation of a real drive; units are vtime units, 1 ms = 12012 units):
    command acknowledge ~1 ms; a seek costs 25 ms + 0.4 ms*sqrt(distance in sectors) (about 150 ms across half the disc),
    a Pause that interrupts reading completes after ~59 ms. The head position `head` is the sector last passed under the lens. */
 #define ACK 12000
 static uint32_t head, seek_from; static int seeking; static uint64_t seek_end;
 static double msqrt(double v){ if(v<=0) return 0; double x=v>1?v/2:1; for(int i=0;i<30;i++) x=0.5*(x+v/x); return x; }
+static uint64_t rp_init(void){ static int i; if(!i){ i=1; read_period=(uint64_t)(80000.0/a2_vbl_ratio()+0.5); } return read_period; }
 static uint64_t seek_units(uint32_t from,uint32_t to){
-    uint32_t d=from>to?from-to:to-from; if(d==0) return 0; if(d<=3&&to>from) return (uint64_t)d*read_period;
+    uint32_t d=from>to?from-to:to-from; if(d==0) return 0; if(d<=3&&to>from) return (uint64_t)d*rp_init();
     double ms=25.0+0.40*msqrt((double)d); return (uint64_t)(ms*12012.0); }
 static int cdlog; long cd_cmd_count[256]; static int xa_file, xa_chan;
 
@@ -81,7 +87,8 @@ static void cmd(uint8_t c){ { unsigned k=ring_n++&31; ring_c[k]=c; memcpy(ring_p
     case 0x10: { uint32_t l=loc+150; r[0]=tobcd(l/75/60); r[1]=tobcd(l/75%60); r[2]=tobcd(l%75); r[3]=mode&1?0:2; r[4]=0; r[5]=0; r[6]=0; r[7]=0; push(t+ACK,3,8,r,0); } break;
     case 0x13: r[1]=0x01; r[2]=0x01; push(t+ACK,3,3,r,0); break;
     case 0x14: r[1]=0x00; r[2]=0x02; push(t+ACK,3,3,r,0); break;
-    case 0x15: case 0x16: { uint64_t sk=cd_seek_on()?seek_units(head,loc):0; if(getenv("A2XALOG")){ extern long gpu_frame; fprintf(stderr,"[F%ld t=%llu] [XA] Seek cmd %02x loc %u head %u seek %.1f ms -> INT2 at t+%llu\n",gpu_frame,(unsigned long long)t,c,loc,head,sk/12012.0,(unsigned long long)(ACK+sk+30000)); } seek_from=head; head=loc; seeking=sk>0; seek_end=t+ACK+sk; push(t+ACK,3,1,r,0); r[0]=stat; push(t+ACK+sk+30000,2,1,r,0); } break;
+    case 0x15: case 0x16: { uint64_t sk=cd_seek_on()?seek_units(head,loc):0; if(getenv("A2XALOG")){ extern long gpu_frame; fprintf(stderr,"[F%ld t=%llu] [XA] Seek cmd %02x loc %u head %u seek %.1f ms -> INT2 at t+%llu\n",gpu_frame,(unsigned long long)t,c,loc,head,sk/12012.0,(unsigned long long)(ACK+sk+30000)); } seek_from=head; head=loc; seeking=sk>0; seek_end=t+ACK+sk; { static int sr=-1; if(sr<0) sr=getenv("A2SEEKREAD")!=0; if(!sr){ purge_sectors(); reading=0; } }   /* SeekL/SeekP stop reading: the drive waits paused at the target until the next ReadN/ReadS (as on a PS1 and in Mednafen). Here the old read went on and an XA track started seconds early (cut-scene 101; session 107) */
+        push(t+ACK,3,1,r,0); r[0]=stat; push(t+ACK+sk+30000,2,1,r,0); } break;
     case 0x19: if(param[0]==0x20){ r[0]=0x94; r[1]=0x09; r[2]=0x19; r[3]=0xC0; push(t+ACK,3,4,r,0); } else { r[0]=s|1; r[1]=0x10; push(t+ACK,5,2,r,0); } break;
     case 0x1A: push(t+ACK,3,1,r,0); { uint8_t g[8]={0x02,0x00,0x20,0x00,'S','C','E','A'}; push(t+30000,2,8,g,0); } break;
     case 0x1E: push(t+ACK,3,1,r,0); push(t+30000,2,1,r,0); break;
@@ -118,12 +125,24 @@ static void xa_selftest(uint64_t now){
     if(!init){ init=1; const char*e=getenv("A2XATEST"); if(e){ unsigned f=0; ch=0; if(sscanf(e,"%u:%u:%u:%u",&lba,&cnt,&f,&ch)>=2){ on=1; t0=(uint64_t)f*200000; nextt=t0; step=(ch&0x100)?8:16; } } }
     if(!on||now<nextt||!cnt||(!disc&&!use_dir)) return; nextt+=1260000;
     unsigned want=ch&0xff; for(int k=0;k<16;k++){ uint8_t sc[2352]; read_sector(lba,sc); lba++; if((sc[18]&4)&&sc[17]==want){ xa_decode(sc); cnt--; break; } } }
-void cd_step(uint64_t now){
+static void cd_step1(uint64_t now);
+void cd_step(uint64_t now){ for(int i=0;i<4;i++){ int n0=nq; uint32_t l0=loc; uint8_t f0=flag; cd_step1(now); if(nq==n0&&loc==l0&&flag==f0) break; } }
+static void cd_step1(uint64_t now){
     now_t=now; xa_selftest(now);
+    /* An XA audio sector goes from the drive to the SPU by itself on a PS1: it does not wait until the CPU has acknowledged the
+       previous interrupt. Here such sectors used to wait behind a pending response (GetlocP etc.), and the voice slowed down by up
+       to 20% for a second or two (seen in cut-scene 240 against Mednafen; session 107). A2XALATE=1 restores the old behaviour. */
+    if(flag!=0 && nq>0 && reading && (mode&0x40)){ static int strict=-1; if(strict<0) strict=getenv("A2XALATE")==0;
+        if(strict){ int best=-1; for(int i=0;i<nq;i++) if(q[i].kind==1 && q[i].t<=now && (best<0||q[i].t<q[best].t)) best=i;
+            if(best>=0 && loc<disc_sectors){ static uint8_t xs[2352]; read_sector(loc,xs);
+                if(xs[18]&0x04){ Ev e=q[best]; memmove(&q[best],&q[best+1],(nq-best-1)*sizeof(Ev)); nq--;
+                    cd_xa_sectors++; { int pass=!(mode&0x08) || (xs[16]==xa_file && xs[17]==xa_chan); if(pass) xa_decode(xs); }
+                    loc++; head=loc; seeking=0; rp_init(); { uint8_t r[1]={stat|0x20}; push(e.t+((mode&0x80)?read_period:2*read_period),1,1,r,1); } } } } }
     if(flag==0 && nq>0){
         int best=-1; for(int i=0;i<nq;i++) if(q[i].t<=now && (best<0||q[i].t<q[best].t)) best=i;
         if(best>=0){ Ev e=q[best]; memmove(&q[best],&q[best+1],(nq-best-1)*sizeof(Ev)); nq--;
-            if(e.kind==1){ if(!reading) return; int xa=fire_sector(); uint8_t r[1]={stat|0x20}; push(now+((mode&0x80)?read_period:2*read_period),1,1,r,1); if(xa) return; }
+            if(e.kind==1){ if(!reading) return; int xa=fire_sector(); uint8_t r[1]={stat|0x20}; rp_init(); { static int strict=-1; if(strict<0) strict=getenv("A2XALATE")==0;   /* XA sectors keep the steady rate of the disc: the next one is due one period after this one was due, not after it was handled - otherwise the voice slowly falls behind the picture (session 107) */
+              push(((xa&&strict)?e.t:now)+((mode&0x80)?read_period:2*read_period),1,1,r,1); } if(xa) return; }
             rhead=rtail=0; for(int i=0;i<e.n;i++) resp[rtail++]=e.r[i];
             flag=e.irq; busy=0; if(cdlog){ fprintf(stderr,"CD INT%d resp",e.irq); for(int i=0;i<e.n;i++) fprintf(stderr," %02x",e.r[i]); fprintf(stderr,"\n"); } }
     }

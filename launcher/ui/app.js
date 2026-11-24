@@ -74,6 +74,15 @@ var S = {
   'texfilter.t': ['Texture filtering', 'Фильтрация текстур'],
   'texfilter.d': ['Blends the texels on 3D surfaces instead of showing the PlayStation’s square blocks. Costs almost nothing. Turn it off for the original look.',
                   'Смешивает текселы на поверхностях в 3D вместо «квадратиков» PlayStation. Почти ничего не стоит. Выключите, чтобы было как в оригинале.'],
+  'hdtex.t': ['HD textures', 'HD-текстуры'],
+  'hdtex.d': ['Replaces the scenery, characters and effects with upscaled HD versions from the hd/ folder. The game’s own palettes still apply, so flashes and colour effects stay as in the original.',
+              'Заменяет текстуры локаций, персонажей и эффектов на увеличенные HD-версии из папки hd/. Палитры игры работают как прежде, поэтому вспышки и цветовые эффекты остаются как в оригинале.'],
+  'hdui.t': ['HD interface', 'HD-интерфейс'],
+  'hdui.d': ['Replaces the menus, HUD, item icons, portraits and the system font with HD versions.',
+             'Заменяет меню, HUD, иконки предметов, портреты и системный шрифт на HD-версии.'],
+  'hdsize.t': ['HD texture size', 'Размер HD-текстур'],
+  'hdsize.d': ['Detail of the HD pictures in video memory. 4× is the full pack; 2× uses a quarter of the memory.',
+               'Детализация HD-картинок в видеопамяти. 4× — пак полностью; 2× занимает в четыре раза меньше памяти.'],
   'hires.t': ['Internal 3D resolution', 'Внутреннее разрешение 3D'],
   'hires.d': ['Draws the 3D scenery and characters on a finer grid than the original, for cleaner edges. The video card does this work, so even 4× costs little; 6× and 8× are smoothed down to the window and suit big screens.',
               'Рисует 3D-сцены и персонажей на более частой сетке, чем в оригинале, края становятся чище. Эту работу делает видеокарта, поэтому даже 4× почти ничего не стоит; 6× и 8× сглаживаются под размер окна и подходят для больших экранов.'],
@@ -88,6 +97,11 @@ var S = {
   'mods.title': ['Mods', 'Моды'],
   'mods.lead': ['Optional changes to how the game looks and runs. They never touch your saves or the disc image. Turn any of them off to get the original behaviour.',
                 'Необязательные изменения того, как игра выглядит и работает. Они не трогают сохранения и образ диска. Любой мод можно выключить и получить оригинальное поведение.'],
+  'herosw.t': ['Fun mod: play as another character', 'Весёлый мод: играть за другого персонажа'],
+  'hero.t': ['Character', 'Персонаж'],
+  'hero.d': ['Who you play as when the mod is on.', 'За кого вы играете, когда мод включён.'],
+  'herosw.d': ['Replaces Flint with another character of the game: Alexia, Baron Diaz or Mephisto. Their own models and textures are used; they move with Flint’s animations and keep his sword and shield. Takes effect on the next map load. Saves are never touched.',
+             'Заменяет Флинта другим персонажем игры: Алексией, бароном Диасом или Мефисто. Берутся их настоящие модели и текстуры; двигаются они по анимациям Флинта и держат его меч и щит. Применяется при следующей загрузке карты. Сохранения не затрагиваются.'], 'hero.alexia': ['Alexia', 'Алексия'], 'hero.diaz': ['Baron Diaz', 'Барон Диас'], 'hero.mephisto': ['Mephisto', 'Мефисто'],
   'wide.t': ['Widescreen', 'Широкий экран'],
   'wide.d': ['Shows more of the world to the left and right instead of black bars. Menus and backgrounds are stretched to fit, and objects can pop in or out near the edges because the game never expected them to be seen.',
              'Показывает больше мира слева и справа вместо чёрных полос. Меню и фоны растягиваются, а у краёв могут появляться и пропадать объекты, потому что игра не рассчитывала, что их увидят.'],
@@ -206,7 +220,7 @@ var LOADS = { 0: 0, 60: 1, 75: 1, 90: 2, 120: 2, 144: 3, 165: 3, 240: 4 };
 
 var state = {
   lang: 'en',
-  size: '1280x960', mode: 'window', smooth: true, texfilter: true, hires: 1, pgxp: true,
+  size: '1280x960', mode: 'window', smooth: true, texfilter: true, hires: 1, pgxp: true, hdtex: false, hdui: false, hdsize: 4, herosw: false, hero: 'alexia',
   showfps: false, wide: false, wfmt: '16:9', unlock: 0, sound: true, disc: '', autoupdate: true, dismissed: ''
 };
 var env = { built: false, python: '', version: '', status: null };
@@ -250,6 +264,8 @@ function set(k, v) { state[k] = v; save(true); render(); }
 var OPTS = {
   mode: [['window', 'mode.window'], ['borderless', 'mode.borderless'], ['fullscreen', 'mode.fullscreen']],
   hires: [[1, '1×'], [2, '2×'], [3, '3×'], [4, '4×'], [6, '6×'], [8, '8×']],
+  hdsize: [[2, '2×'], [4, '4×']],
+  hero: [['alexia', 'hero.alexia'], ['diaz', 'hero.diaz'], ['mephisto', 'hero.mephisto']],
   unlock: UNLOCKS.map(function (u) { return [u, u ? String(u) : 'unlock.off']; })
 };
 
@@ -308,6 +324,7 @@ function paintRow(row) {
     extra.lastChild.style.textAlign = 'right'; extra.lastChild.style.maxWidth = '230px';
   }
   if (k === 'size') row.classList.toggle('off', state.mode === 'fullscreen');
+  if (k === 'hero') row.classList.toggle('off', !state.herosw);
 }
 
 function paintWide() {
@@ -358,6 +375,7 @@ function setupLines() {
              state.hires > 1 ? '3D ×' + state.hires : (ru ? 'родное 3D' : 'native 3D')];
   var mods = [];
   if (state.wide) mods.push((ru ? 'широкий экран ' : 'widescreen ') + state.wfmt);
+  if (state.herosw) mods.push((ru ? 'персонаж: ' : 'character: ') + t('hero.' + state.hero));
   if (state.unlock >= 60) mods.push(state.unlock + (ru ? ' кадров/с' : ' fps'));
   return [
     ['window', 'gfx', 'kv.window', win],

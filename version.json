@@ -1,9 +1,9 @@
 {
- "version": "0.9.15",
+ "version": "0.9.21",
  "notes": {
-  "en": "The game is fully playable.",
-  "ru": "Игра полностью проходима."
-},
- "rebuild": "compile",
- "rebuild_id": 15
+  "en": "HD textures and HD interface (two switches in the Graphics tab, off by default; packs in hd/, encrypted, nothing readable inside). New fun mod in the Mods tab: play as Alexia, Baron Diaz or Mephisto instead of Flint, with their own models and textures. Rebuilds the game once (about 5 minutes).",
+  "ru": "HD-текстуры и HD-интерфейс (две галочки на вкладке «Графика», по умолчанию выключены; паки в папке hd/, зашифрованы). Новый весёлый мод на вкладке «Моды»: играть за Алексию, барона Диаса или Мефисто вместо Флинта, с их настоящими моделями и текстурами. Один раз пересоберёт игру (около 5 минут)."
+ },
+ "rebuild": "translate",
+ "rebuild_id": 21
 }
